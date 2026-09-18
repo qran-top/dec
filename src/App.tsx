@@ -103,72 +103,82 @@ export default function App() {
     try {
       let foundResults: DictionaryResult[] = [];
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds max
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      // Run both APIs in parallel to save time
-      const [dictPromise, wikiPromise] = await Promise.allSettled([
-        fetch(`https://api.dictionaryapi.dev/api/v2/entries/ar/${encodeURIComponent(searchQuery.trim())}`, { signal: controller.signal }),
-        fetch(`https://ar.wiktionary.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal })
-      ]);
+      try {
+        // الخطوة الأولى: البحث الأولي لجلب الكلمات بالتشكيل
+        const searchRes = await fetch(`https://ar.wiktionary.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal });
+        
+        let exactTitlesToFetch: string[] = [];
 
-      clearTimeout(timeoutId);
-
-      // Process Free Dictionary API
-      if (dictPromise.status === 'fulfilled' && dictPromise.value.ok) {
-        try {
-          const dictData = await dictPromise.value.json();
-          dictData.forEach((entry: any) => {
-            entry.meanings.forEach((meaning: any) => {
-              meaning.definitions.forEach((def: any) => {
-                foundResults.push({
-                  dictionary: "القاموس المفتوح (API)",
-                  partOfSpeech: meaning.partOfSpeech === 'noun' ? 'اسم' : meaning.partOfSpeech === 'verb' ? 'فعل' : meaning.partOfSpeech === 'adjective' ? 'صفة' : 'أخرى',
-                  definition: def.definition
-                });
-              });
-            });
-          });
-        } catch(e) {}
-      }
-
-      // Wiktionary API fallback / addition using Search API for much better fuzzy matching and handling lack of diacritics
-      if (wikiPromise.status === 'fulfilled' && wikiPromise.value.ok) {
-        try {
-          const wikiData = await wikiPromise.value.json();
-          const searchHits = wikiData.query?.search || [];
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const searchHits = searchData.query?.search || [];
           
-          let suggestions: string[] = [];
-
-          searchHits.forEach((hit: any) => {
-            const cleanSnippet = hit.snippet.replace(/<[^>]*>?/gm, '').trim(); // Remove HTML tags
-            
-            // If it's a disambiguation "Did you mean" page
+          for (const hit of searchHits) {
+            const cleanSnippet = hit.snippet.replace(/<[^>]*>?/gm, '').trim();
             if (cleanSnippet.includes('هل تقصد:')) {
               const parts = cleanSnippet.split(/هل تقصد:?/);
               const foundSuggestions = parts[1].split(/\s+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0 && s.length < 25);
-              suggestions = [...suggestions, ...foundSuggestions];
+              exactTitlesToFetch.push(...foundSuggestions);
             } else if (cleanSnippet.length > 20) {
-              // Valid definition found
-              foundResults.push({
-                dictionary: `ويكاموس (${hit.title})`,
-                partOfSpeech: "متعدد",
-                definition: cleanSnippet,
-              });
+              exactTitlesToFetch.push(hit.title);
             }
-          });
-
-          // Add unique suggestions if we found any disambiguation
-          if (suggestions.length > 0) {
-            suggestions = Array.from(new Set(suggestions));
-            foundResults.push({
-              dictionary: "كلمات مشابهة (ويكاموس)",
-              partOfSpeech: "خيارات متعددة",
-              definition: "هل تقصد إحدى هذه الكلمات بالتشكيل الصحيح؟",
-              suggestions: suggestions
-            });
           }
-        } catch (e) {}
-      }
+        }
+        
+        // إزالة التكرار وأخذ أول 3 نتائج دقيقة لعدم الإطالة
+        exactTitlesToFetch = Array.from(new Set(exactTitlesToFetch)).slice(0, 3);
+        
+        // إذا لم يجد نتائج دقيقة، نضيف الكلمة الأصلية كمحاولة
+        if (exactTitlesToFetch.length === 0) {
+           exactTitlesToFetch.push(searchQuery.trim());
+        }
+
+        // الخطوة الثانية: جلب المعاني الكاملة للكلمات المحددة
+        const extractPromises = exactTitlesToFetch.map(title => 
+           fetch(`https://ar.wiktionary.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(title)}&format=json&origin=*`, { signal: controller.signal })
+        );
+
+        const extractResponses = await Promise.allSettled(extractPromises);
+        
+        const validResponses = await Promise.all(
+           extractResponses.map(async (res) => {
+              if (res.status === 'fulfilled' && res.value.ok) {
+                 const data = await res.value.json();
+                 const pages = data.query?.pages;
+                 if (pages) {
+                    const pageId = Object.keys(pages)[0];
+                    if (pageId !== "-1" && pages[pageId].extract) {
+                       return {
+                          title: pages[pageId].title,
+                          extract: pages[pageId].extract
+                       };
+                    }
+                 }
+              }
+              return null;
+           })
+        );
+
+        validResponses.filter(Boolean).forEach((entry: any) => {
+           // تنظيف النصوص للحصول على معنى مرتب
+           let cleanExtract = entry.extract.replace(/==.*?==/g, '').trim();
+           // إزالة بعض الحروف والرموز الزائدة إن وجدت
+           cleanExtract = cleanExtract.replace(/\n{3,}/g, '\n\n');
+           
+           if (cleanExtract.length > 10) {
+              foundResults.push({
+                dictionary: `ويكاموس (${entry.title})`,
+                partOfSpeech: "متعدد",
+                definition: cleanExtract
+              });
+           }
+        });
+
+      } catch (e) {}
+
+      clearTimeout(timeoutId);
 
       if (foundResults.length === 0) {
         foundResults = [
