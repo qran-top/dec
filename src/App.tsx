@@ -100,24 +100,79 @@ export default function App() {
     window.history.pushState({}, '', url);
 
     try {
-      const params = new URLSearchParams({
-        q: searchQuery.trim(),
-        dicts: selectedDicts.join('، '),
-        pos: partOfSpeech,
-        sort: sortOrder
-      });
+      // Free Dictionary API check (supports limited Arabic)
+      let foundResults: DictionaryResult[] = [];
+      
+      try {
+        const dictResponse = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/ar/${encodeURIComponent(searchQuery.trim())}`);
+        if (dictResponse.ok) {
+          const dictData = await dictResponse.json();
+          dictData.forEach((entry: any) => {
+            entry.meanings.forEach((meaning: any) => {
+              meaning.definitions.forEach((def: any) => {
+                foundResults.push({
+                  dictionary: "القاموس المفتوح (API)",
+                  partOfSpeech: meaning.partOfSpeech === 'noun' ? 'اسم' : meaning.partOfSpeech === 'verb' ? 'فعل' : meaning.partOfSpeech === 'adjective' ? 'صفة' : 'أخرى',
+                  definition: def.definition
+                });
+              });
+            });
+          });
+        }
+      } catch (e) {
+        // Ignore dictionary API failure
+      }
 
-      const response = await fetch(`/api/search?${params.toString()}`);
-      if (!response.ok) {
-        throw new Error('فشل في جلب البيانات من الخادم.');
+      // Wiktionary API fallback / addition
+      try {
+        const wikiResponse = await fetch(`https://ar.wiktionary.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(searchQuery.trim())}&format=json&origin=*`);
+        if (wikiResponse.ok) {
+          const wikiData = await wikiResponse.json();
+          const pages = wikiData.query?.pages;
+          if (pages) {
+            const pageId = Object.keys(pages)[0];
+            if (pageId !== "-1" && pages[pageId].extract) {
+              const extract = pages[pageId].extract;
+              // Clean up the extract a bit
+              const cleanExtract = extract.replace(/==.*?==/g, '').trim();
+              if (cleanExtract.length > 10) {
+                foundResults.push({
+                  dictionary: "ويكاموس (Wiktionary)",
+                  partOfSpeech: "متعدد",
+                  definition: cleanExtract.substring(0, 500) + (cleanExtract.length > 500 ? "..." : "")
+                });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // Ignore wiki failure
       }
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
+
+      if (foundResults.length === 0) {
+        // Fallback for simulation if no API found the word
+        foundResults = [
+          {
+            dictionary: selectedDicts[0] || "القاموس العام",
+            partOfSpeech: "غير محدد",
+            definition: `لم نتمكن من العثور على معنى كلمة "${searchQuery}" في القواميس المفتوحة المجانية. هذه النسخة من الموقع تعمل بشكل ثابت (Static) بدون محرك الذكاء الاصطناعي الخاص بها.`
+          }
+        ];
       }
-      setResults(data.results);
+
+      // Apply filtering and sorting logic
+      if (partOfSpeech !== 'all') {
+        const posMap: any = { 'noun': 'اسم', 'verb': 'فعل', 'adjective': 'صفة' };
+        foundResults = foundResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'غير محدد');
+      }
+
+      if (sortOrder === 'alpha') {
+        foundResults.sort((a, b) => a.dictionary.localeCompare(b.dictionary));
+      }
+
+      setResults(foundResults);
     } catch (err: any) {
-      setError(err.message || 'حدث خطأ غير متوقع.');
+      setError(err.message || 'حدث خطأ غير متوقع في جلب البيانات.');
     } finally {
       setIsSearching(false);
     }
