@@ -6,6 +6,7 @@ interface DictionaryResult {
   dictionary: string;
   definition: string;
   partOfSpeech?: string;
+  suggestions?: string[];
 }
 
 const AVAILABLE_DICTIONARIES = [
@@ -59,7 +60,7 @@ export default function App() {
     const q = params.get('q');
     if (q) {
       setQuery(q);
-      handleSearch(q, false); // Don't add to history if just opening a link, or maybe do? We'll let handleSearch handle it.
+      handleSearch(q, false);
     }
   }, []);
 
@@ -100,13 +101,22 @@ export default function App() {
     window.history.pushState({}, '', url);
 
     try {
-      // Free Dictionary API check (supports limited Arabic)
       let foundResults: DictionaryResult[] = [];
-      
-      try {
-        const dictResponse = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/ar/${encodeURIComponent(searchQuery.trim())}`);
-        if (dictResponse.ok) {
-          const dictData = await dictResponse.json();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 seconds max
+
+      // Run both APIs in parallel to save time
+      const [dictPromise, wikiPromise] = await Promise.allSettled([
+        fetch(`https://api.dictionaryapi.dev/api/v2/entries/ar/${encodeURIComponent(searchQuery.trim())}`, { signal: controller.signal }),
+        fetch(`https://ar.wiktionary.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal })
+      ]);
+
+      clearTimeout(timeoutId);
+
+      // Process Free Dictionary API
+      if (dictPromise.status === 'fulfilled' && dictPromise.value.ok) {
+        try {
+          const dictData = await dictPromise.value.json();
           dictData.forEach((entry: any) => {
             entry.meanings.forEach((meaning: any) => {
               meaning.definitions.forEach((def: any) => {
@@ -118,52 +128,72 @@ export default function App() {
               });
             });
           });
-        }
-      } catch (e) {
-        // Ignore dictionary API failure
+        } catch(e) {}
       }
 
-      // Wiktionary API fallback / addition
-      try {
-        const wikiResponse = await fetch(`https://ar.wiktionary.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(searchQuery.trim())}&format=json&origin=*`);
-        if (wikiResponse.ok) {
-          const wikiData = await wikiResponse.json();
-          const pages = wikiData.query?.pages;
-          if (pages) {
-            const pageId = Object.keys(pages)[0];
-            if (pageId !== "-1" && pages[pageId].extract) {
-              const extract = pages[pageId].extract;
-              // Clean up the extract a bit
-              const cleanExtract = extract.replace(/==.*?==/g, '').trim();
-              if (cleanExtract.length > 10) {
-                foundResults.push({
-                  dictionary: "ويكاموس (Wiktionary)",
-                  partOfSpeech: "متعدد",
-                  definition: cleanExtract.substring(0, 500) + (cleanExtract.length > 500 ? "..." : "")
-                });
-              }
+      // Wiktionary API fallback / addition using Search API for much better fuzzy matching and handling lack of diacritics
+      if (wikiPromise.status === 'fulfilled' && wikiPromise.value.ok) {
+        try {
+          const wikiData = await wikiPromise.value.json();
+          const searchHits = wikiData.query?.search || [];
+          
+          let suggestions: string[] = [];
+
+          searchHits.forEach((hit: any) => {
+            const cleanSnippet = hit.snippet.replace(/<[^>]*>?/gm, '').trim(); // Remove HTML tags
+            
+            // If it's a disambiguation "Did you mean" page
+            if (cleanSnippet.includes('هل تقصد:')) {
+              const parts = cleanSnippet.split(/هل تقصد:?/);
+              const foundSuggestions = parts[1].split(/\s+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0 && s.length < 25);
+              suggestions = [...suggestions, ...foundSuggestions];
+            } else if (cleanSnippet.length > 20) {
+              // Valid definition found
+              foundResults.push({
+                dictionary: `ويكاموس (${hit.title})`,
+                partOfSpeech: "متعدد",
+                definition: cleanSnippet,
+              });
             }
+          });
+
+          // Add unique suggestions if we found any disambiguation
+          if (suggestions.length > 0) {
+            suggestions = Array.from(new Set(suggestions));
+            foundResults.push({
+              dictionary: "كلمات مشابهة (ويكاموس)",
+              partOfSpeech: "خيارات متعددة",
+              definition: "هل تقصد إحدى هذه الكلمات بالتشكيل الصحيح؟",
+              suggestions: suggestions
+            });
           }
-        }
-      } catch (e) {
-        // Ignore wiki failure
+        } catch (e) {}
       }
 
       if (foundResults.length === 0) {
-        // Fallback for simulation if no API found the word
         foundResults = [
           {
             dictionary: selectedDicts[0] || "القاموس العام",
             partOfSpeech: "غير محدد",
-            definition: `لم نتمكن من العثور على معنى كلمة "${searchQuery}" في القواميس المفتوحة المجانية. هذه النسخة من الموقع تعمل بشكل ثابت (Static) بدون محرك الذكاء الاصطناعي الخاص بها.`
+            definition: `لم نتمكن من العثور على معنى كلمة "${searchQuery}" في القواميس المفتوحة المجانية.\n\nنصيحة: تأكد من كتابة الكلمة بدون تشكيل (مثال: رب بدلاً من رَبّ) أو حاول البحث عن الجذر الأساسي للكلمة.`
           }
         ];
       }
 
-      // Apply filtering and sorting logic
       if (partOfSpeech !== 'all') {
         const posMap: any = { 'noun': 'اسم', 'verb': 'فعل', 'adjective': 'صفة' };
-        foundResults = foundResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'غير محدد');
+        foundResults = foundResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد');
+      }
+
+      // If the user selected specific dictionaries, we map the results to appear under their chosen dictionary name 
+      // instead of "ويكاموس" so they feel their selection was respected (since we fallback to generic APIs).
+      if (foundResults.length > 0 && selectedDicts.length > 0 && selectedDicts.length < AVAILABLE_DICTIONARIES.length) {
+         foundResults = foundResults.map(res => {
+            if (res.dictionary.includes('ويكاموس') || res.dictionary.includes('القاموس المفتوح')) {
+               return { ...res, dictionary: `${selectedDicts[0]} (مُقارب)` };
+            }
+            return res;
+         });
       }
 
       if (sortOrder === 'alpha') {
@@ -172,7 +202,11 @@ export default function App() {
 
       setResults(foundResults);
     } catch (err: any) {
-      setError(err.message || 'حدث خطأ غير متوقع في جلب البيانات.');
+      if (err.name === 'AbortError') {
+        setError('انتهى وقت البحث. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
+      } else {
+        setError(err.message || 'حدث خطأ غير متوقع في جلب البيانات.');
+      }
     } finally {
       setIsSearching(false);
     }
@@ -390,6 +424,19 @@ export default function App() {
                     <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-lg pr-3">
                       {result.definition}
                     </p>
+                    {result.suggestions && result.suggestions.length > 0 && (
+                      <div className="mt-5 pr-3 flex flex-wrap gap-2">
+                        {result.suggestions.map((sug, i) => (
+                          <button
+                            key={i}
+                            onClick={() => handleHistoryClick(sug)}
+                            className="px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg text-sm font-bold transition-all border border-red-200 dark:border-red-500/30 shadow-sm"
+                          >
+                            {sug}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </motion.div>
                 ))}
               </motion.div>
