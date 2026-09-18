@@ -163,9 +163,12 @@ export default function App() {
 
         validResponses.filter(Boolean).forEach((entry: any) => {
            // تنظيف النصوص للحصول على معنى مرتب
-           let cleanExtract = entry.extract.replace(/==.*?==/g, '').trim();
-           // إزالة بعض الحروف والرموز الزائدة إن وجدت
-           cleanExtract = cleanExtract.replace(/\n{3,}/g, '\n\n');
+           let cleanExtract = entry.extract;
+           // إزالة العناوين مثل == عربية == أو === المعاني ===
+           cleanExtract = cleanExtract.replace(/={2,}.*?={2,}/g, '');
+           // إزالة علامات اليساوي المتناثرة في بداية الأسطر
+           cleanExtract = cleanExtract.replace(/^[=\s]+/gm, '');
+           cleanExtract = cleanExtract.replace(/\n{3,}/g, '\n\n').trim();
            
            if (cleanExtract.length > 10) {
               foundResults.push({
