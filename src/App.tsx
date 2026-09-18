@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, Bug, Copy, Check } from 'lucide-react';
+import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, Bug, Copy, Check, ArrowUp } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface DictionaryResult {
@@ -46,6 +46,31 @@ export default function App() {
   const [debugLogs, setDebugLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
+
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleGoHome = () => {
+    setQuery('');
+    setResults(null);
+    setError(null);
+    setIsSearching(false);
+    setProgress(0);
+    setDebugLogs([]);
+    window.history.pushState({}, '', window.location.pathname);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const logDebug = (msg: string) => {
     const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
@@ -357,12 +382,12 @@ export default function App() {
       {/* Header */}
       <header className="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md shadow-sm">
         <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+          <button onClick={handleGoHome} className="flex items-center gap-3 hover:opacity-80 transition-opacity text-right">
             <svg className="w-8 h-8 text-red-600 dark:text-red-500" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
               <path d="M50 5 L60 30 L85 15 L70 40 L95 50 L70 60 L85 85 L60 70 L50 95 L40 70 L15 85 L30 60 L5 50 L30 40 L15 15 L40 30 Z" fill="currentColor"/>
             </svg>
             <h1 className="text-xl font-bold tracking-tight">القاموس العربي</h1>
-          </div>
+          </button>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setShowDebug(!showDebug)}
@@ -644,6 +669,22 @@ export default function App() {
           </AnimatePresence>
         </section>
       </main>
+
+      {/* Scroll to Top Button */}
+      <AnimatePresence>
+        {showScrollTop && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            onClick={scrollToTop}
+            className="fixed bottom-6 left-6 p-3 bg-slate-800 dark:bg-slate-700 text-white rounded-full shadow-lg hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors z-50 flex items-center justify-center border border-slate-700 dark:border-slate-600"
+            aria-label="العودة للأعلى"
+          >
+            <ArrowUp className="w-5 h-5" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
