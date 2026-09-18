@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, Bug, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface DictionaryResult {
@@ -40,6 +40,22 @@ export default function App() {
   const [selectedDicts, setSelectedDicts] = useState<string[]>(['لسان العرب', 'القاموس المحيط', 'المعجم الوسيط']);
   const [partOfSpeech, setPartOfSpeech] = useState('all');
   const [sortOrder, setSortOrder] = useState('relevance');
+
+  // Debug state
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
+  const [isCopied, setIsCopied] = useState(false);
+
+  const logDebug = (msg: string) => {
+    const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
+    setDebugLogs(prev => [...prev, `[${time}] ${msg}`]);
+  };
+
+  const copyDebugLogs = () => {
+    navigator.clipboard.writeText(debugLogs.join('\n'));
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
 
   useEffect(() => {
     if (isDarkMode) {
@@ -91,6 +107,8 @@ export default function App() {
     setIsSearching(true);
     setError(null);
     setResults(null);
+    setDebugLogs([]);
+    logDebug(`بدء البحث عن الكلمة: "${searchQuery.trim()}"`);
     
     if (saveToHistory) {
       addToHistory(searchQuery.trim());
@@ -106,80 +124,169 @@ export default function App() {
       const timeoutId = setTimeout(() => controller.abort(), 10000);
 
       try {
-        // الخطوة الأولى: البحث الأولي لجلب الكلمات بالتشكيل
-        const searchRes = await fetch(`https://ar.wiktionary.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal });
-        
-        let exactTitlesToFetch: string[] = [];
-
-        if (searchRes.ok) {
-          const searchData = await searchRes.json();
-          const searchHits = searchData.query?.search || [];
-          
-          for (const hit of searchHits) {
-            const cleanSnippet = hit.snippet.replace(/<[^>]*>?/gm, '').trim();
-            if (cleanSnippet.includes('هل تقصد:')) {
-              const parts = cleanSnippet.split(/هل تقصد:?/);
-              const foundSuggestions = parts[1].split(/\s+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0 && s.length < 25);
-              exactTitlesToFetch.push(...foundSuggestions);
-            } else if (cleanSnippet.length > 20) {
-              exactTitlesToFetch.push(hit.title);
-            }
-          }
-        }
-        
-        // إزالة التكرار وأخذ أول 3 نتائج دقيقة لعدم الإطالة
-        exactTitlesToFetch = Array.from(new Set(exactTitlesToFetch)).slice(0, 3);
-        
-        // إذا لم يجد نتائج دقيقة، نضيف الكلمة الأصلية كمحاولة
-        if (exactTitlesToFetch.length === 0) {
-           exactTitlesToFetch.push(searchQuery.trim());
-        }
-
-        // الخطوة الثانية: جلب المعاني الكاملة للكلمات المحددة
-        const extractPromises = exactTitlesToFetch.map(title => 
-           fetch(`https://ar.wiktionary.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(title)}&format=json&origin=*`, { signal: controller.signal })
-        );
-
-        const extractResponses = await Promise.allSettled(extractPromises);
-        
-        const validResponses = await Promise.all(
-           extractResponses.map(async (res) => {
-              if (res.status === 'fulfilled' && res.value.ok) {
-                 const data = await res.value.json();
-                 const pages = data.query?.pages;
-                 if (pages) {
-                    const pageId = Object.keys(pages)[0];
-                    if (pageId !== "-1" && pages[pageId].extract) {
-                       return {
-                          title: pages[pageId].title,
-                          extract: pages[pageId].extract
-                       };
-                    }
-                 }
+        const fetchWiktionary = async () => {
+          logDebug('ويكاموس: جاري بدء البحث...');
+          let results: DictionaryResult[] = [];
+          try {
+            const searchRes = await fetch(`https://ar.wiktionary.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal });
+            
+            let exactTitlesToFetch: string[] = [];
+            if (searchRes.ok) {
+              logDebug('ويكاموس: تم استلام الرد الأولي بنجاح.');
+              const searchData = await searchRes.json();
+              const searchHits = searchData.query?.search || [];
+              
+              for (const hit of searchHits) {
+                const cleanSnippet = hit.snippet.replace(/<[^>]*>?/gm, '').trim();
+                if (cleanSnippet.includes('هل تقصد:')) {
+                  const parts = cleanSnippet.split(/هل تقصد:?/);
+                  const foundSuggestions = parts[1].split(/\s+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0 && s.length < 25);
+                  exactTitlesToFetch.push(...foundSuggestions);
+                } else if (cleanSnippet.length > 20) {
+                  exactTitlesToFetch.push(hit.title);
+                }
               }
+            } else {
+              logDebug(`ويكاموس: فشل في الطلب الأولي (الرمز: ${searchRes.status})`);
+            }
+            
+            exactTitlesToFetch = Array.from(new Set(exactTitlesToFetch)).slice(0, 3);
+            if (exactTitlesToFetch.length === 0) {
+               exactTitlesToFetch.push(searchQuery.trim());
+            }
+
+            logDebug(`ويكاموس: سيتم سحب المعاني للكلمات المحددة: ${exactTitlesToFetch.join('، ')}...`);
+            const extractPromises = exactTitlesToFetch.map(title => 
+               fetch(`https://ar.wiktionary.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(title)}&format=json&origin=*`, { signal: controller.signal })
+            );
+
+            const extractResponses = await Promise.allSettled(extractPromises);
+            const validResponses = await Promise.all(
+               extractResponses.map(async (res) => {
+                  if (res.status === 'fulfilled' && res.value.ok) {
+                     const data = await res.value.json();
+                     const pages = data.query?.pages;
+                     if (pages) {
+                        const pageId = Object.keys(pages)[0];
+                        if (pageId !== "-1" && pages[pageId].extract) {
+                           return { title: pages[pageId].title, extract: pages[pageId].extract };
+                        }
+                     }
+                  }
+                  return null;
+               })
+            );
+
+            validResponses.filter(Boolean).forEach((entry: any) => {
+               let cleanExtract = entry.extract;
+               cleanExtract = cleanExtract.replace(/={2,}.*?={2,}/g, '');
+               cleanExtract = cleanExtract.replace(/^[=\s]+/gm, '');
+               cleanExtract = cleanExtract.replace(/\n{3,}/g, '\n\n').trim();
+               
+               if (cleanExtract.length > 10) {
+                  results.push({
+                    dictionary: `ويكاموس (${entry.title})`,
+                    partOfSpeech: "متعدد",
+                    definition: cleanExtract
+                  });
+               }
+            });
+            logDebug(`ويكاموس: تم استخراج ${results.length} معاني بنجاح.`);
+          } catch (e: any) {
+            logDebug(`ويكاموس: حدث خطأ أثناء المعالجة - ${e.message || 'Unknown Error'}`);
+          }
+          return results;
+        };
+
+        const fetchWikipedia = async () => {
+          logDebug('ويكيبيديا: جاري بدء البحث...');
+          try {
+            const res = await fetch(`https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal });
+            if (!res.ok) {
+              logDebug(`ويكيبيديا: فشل في الطلب (الرمز: ${res.status})`);
               return null;
-           })
-        );
+            }
+            const data = await res.json();
+            const searchHits = data.query?.search || [];
+            if (searchHits.length > 0) {
+              const topHit = searchHits[0].title;
+              logDebug(`ويكيبيديا: جاري جلب نص المقالة "${topHit}"...`);
+              const extractRes = await fetch(`https://ar.wikipedia.org/w/api.php?action=query&prop=extracts&exsentences=4&explaintext=1&titles=${encodeURIComponent(topHit)}&format=json&origin=*`, { signal: controller.signal });
+              if (!extractRes.ok) {
+                logDebug(`ويكيبيديا: فشل في جلب النص (الرمز: ${extractRes.status})`);
+                return null;
+              }
+              const extractData = await extractRes.json();
+              const pages = extractData.query?.pages;
+              if (pages) {
+                const pageId = Object.keys(pages)[0];
+                if (pageId !== "-1" && pages[pageId].extract && pages[pageId].extract.length > 20) {
+                  logDebug('ويكيبيديا: تم جلب نص المقالة بنجاح.');
+                  return {
+                    dictionary: `ويكيبيديا (${topHit})`,
+                    partOfSpeech: "موسوعة",
+                    definition: pages[pageId].extract.trim()
+                  };
+                } else {
+                  logDebug('ويكيبيديا: المقالة المسترجعة قصيرة جداً أو فارغة.');
+                }
+              }
+            } else {
+               logDebug('ويكيبيديا: لم يتم العثور على مقالات مطابقة.');
+            }
+          } catch (e: any) {
+             logDebug(`ويكيبيديا: حدث خطأ - ${e.message || 'Unknown Error'}`);
+          }
+          return null;
+        };
 
-        validResponses.filter(Boolean).forEach((entry: any) => {
-           // تنظيف النصوص للحصول على معنى مرتب
-           let cleanExtract = entry.extract;
-           // إزالة العناوين مثل == عربية == أو === المعاني ===
-           cleanExtract = cleanExtract.replace(/={2,}.*?={2,}/g, '');
-           // إزالة علامات اليساوي المتناثرة في بداية الأسطر
-           cleanExtract = cleanExtract.replace(/^[=\s]+/gm, '');
-           cleanExtract = cleanExtract.replace(/\n{3,}/g, '\n\n').trim();
-           
-           if (cleanExtract.length > 10) {
-              foundResults.push({
-                dictionary: `ويكاموس (${entry.title})`,
-                partOfSpeech: "متعدد",
-                definition: cleanExtract
-              });
-           }
-        });
+        const fetchQuran = async () => {
+          logDebug('القرآن الكريم: جاري البحث...');
+          try {
+            const res = await fetch(`https://api.quran.com/api/v4/search?q=${encodeURIComponent(searchQuery.trim())}&size=3&language=ar`, { signal: controller.signal });
+            if (!res.ok) {
+              logDebug(`القرآن الكريم: فشل في الطلب (الرمز: ${res.status})`);
+              return null;
+            }
+            const data = await res.json();
+            const results = data.search?.results || [];
+            if (results.length > 0) {
+              logDebug(`القرآن الكريم: تم العثور على ${results.length} آيات مطابقة.`);
+              const verses = results.map((r: any) => {
+                 const cleanText = r.text.replace(/<[^>]*>?/gm, '');
+                 return `﴿${cleanText}﴾ [سورة/آية: ${r.verse_key}]`;
+              }).join('\n\n');
+              return {
+                 dictionary: "القرآن الكريم",
+                 partOfSpeech: "شواهد",
+                 definition: verses
+              };
+            } else {
+              logDebug('القرآن الكريم: لم يتم العثور على آيات مطابقة.');
+            }
+          } catch (e: any) {
+            logDebug(`القرآن الكريم: حدث خطأ - ${e.message || 'Unknown Error'}`);
+          }
+          return null;
+        };
 
-      } catch (e) {}
+        logDebug('جاري تنفيذ الطلبات المتوازية...');
+        const fetchedResults = await Promise.allSettled([fetchWiktionary(), fetchWikipedia(), fetchQuran()]);
+        logDebug('اكتملت الطلبات المتوازية. جاري دمج النتائج...');
+        
+        if (fetchedResults[0].status === 'fulfilled' && fetchedResults[0].value) {
+          foundResults.push(...fetchedResults[0].value);
+        }
+        if (fetchedResults[1].status === 'fulfilled' && fetchedResults[1].value) {
+          foundResults.push(fetchedResults[1].value);
+        }
+        if (fetchedResults[2].status === 'fulfilled' && fetchedResults[2].value) {
+          foundResults.push(fetchedResults[2].value);
+        }
+
+      } catch (e: any) {
+        logDebug(`حدث خطأ عام: ${e.message || 'Unknown Error'}`);
+      }
 
       clearTimeout(timeoutId);
 
@@ -195,7 +302,7 @@ export default function App() {
 
       if (partOfSpeech !== 'all') {
         const posMap: any = { 'noun': 'اسم', 'verb': 'فعل', 'adjective': 'صفة' };
-        foundResults = foundResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد');
+        foundResults = foundResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد' || r.partOfSpeech === 'موسوعة' || r.partOfSpeech === 'شواهد');
       }
 
       // If the user selected specific dictionaries, we map the results to appear under their chosen dictionary name 
@@ -246,13 +353,22 @@ export default function App() {
             </svg>
             <h1 className="text-xl font-bold tracking-tight">القاموس العربي</h1>
           </div>
-          <button
-            onClick={() => setIsDarkMode(!isDarkMode)}
-            className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-            aria-label="تبديل الوضع الليلي"
-          >
-            {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`p-2 rounded-full transition-colors ${showDebug ? 'bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'}`}
+              aria-label="سجل التتبع (Debug)"
+            >
+              <Bug className="w-5 h-5" />
+            </button>
+            <button
+              onClick={() => setIsDarkMode(!isDarkMode)}
+              className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="تبديل الوضع الليلي"
+            >
+              {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
+            </button>
+          </div>
         </div>
       </header>
 
@@ -384,6 +500,43 @@ export default function App() {
             </div>
           )}
         </section>
+
+        {/* Debug Logs Panel */}
+        <AnimatePresence>
+          {showDebug && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="w-full max-w-3xl mx-auto overflow-hidden"
+            >
+              <div className="mb-8 p-4 bg-slate-900 dark:bg-black border border-slate-800 rounded-2xl shadow-inner text-left" dir="ltr">
+                <div className="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
+                  <div className="flex items-center gap-2 text-red-400">
+                    <Bug className="w-4 h-4" />
+                    <span className="font-semibold text-sm">Debug Logs</span>
+                  </div>
+                  <button
+                    onClick={copyDebugLogs}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors"
+                  >
+                    {isCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {isCopied ? 'Copied!' : 'Copy Logs'}
+                  </button>
+                </div>
+                <div className="font-mono text-xs text-green-400 h-64 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-700">
+                  {debugLogs.length === 0 ? (
+                    <div className="text-slate-500 italic">Waiting for search action...</div>
+                  ) : (
+                    debugLogs.map((log, i) => (
+                      <div key={i} className="break-words">{log}</div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Results Section */}
         <section className="w-full max-w-3xl mx-auto pb-12">
