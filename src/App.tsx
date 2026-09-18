@@ -243,18 +243,20 @@ export default function App() {
         const fetchQuran = async () => {
           logDebug('القرآن الكريم: جاري البحث...');
           try {
-            const res = await fetch(`https://api.quran.com/api/v4/search?q=${encodeURIComponent(searchQuery.trim())}&size=3&language=ar`, { signal: controller.signal });
+            const res = await fetch(`https://api.alquran.cloud/v1/search/${encodeURIComponent(searchQuery.trim())}/all/quran-simple`, { signal: controller.signal });
             if (!res.ok) {
               logDebug(`القرآن الكريم: فشل في الطلب (الرمز: ${res.status})`);
               return null;
             }
             const data = await res.json();
-            const results = data.search?.results || [];
+            const results = data.data?.matches || [];
             if (results.length > 0) {
+              // Take up to 3 results
+              const topResults = results.slice(0, 3);
               logDebug(`القرآن الكريم: تم العثور على ${results.length} آيات مطابقة.`);
-              const verses = results.map((r: any) => {
-                 const cleanText = r.text.replace(/<[^>]*>?/gm, '');
-                 return `﴿${cleanText}﴾ [سورة/آية: ${r.verse_key}]`;
+              const verses = topResults.map((r: any) => {
+                 const cleanText = r.text;
+                 return `﴿${cleanText}﴾ [سورة ${r.surah.name.replace('سُورَةُ ', '')} - آية: ${r.numberInSurah}]`;
               }).join('\n\n');
               return {
                  dictionary: "القرآن الكريم",
