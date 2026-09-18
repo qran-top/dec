@@ -22,6 +22,7 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<DictionaryResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState(0);
   
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -106,7 +107,8 @@ export default function App() {
     
     setIsSearching(true);
     setError(null);
-    setResults(null);
+    setResults([]);
+    setProgress(15);
     setDebugLogs([]);
     logDebug(`بدء البحث عن الكلمة: "${searchQuery.trim()}"`);
     
@@ -118,13 +120,11 @@ export default function App() {
     url.searchParams.set('q', searchQuery.trim());
     window.history.pushState({}, '', url);
 
-    try {
-      let foundResults: DictionaryResult[] = [];
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-      try {
-        const fetchWiktionary = async () => {
+    try {
+      const fetchWiktionary = async () => {
           logDebug('ويكاموس: جاري بدء البحث...');
           let results: DictionaryResult[] = [];
           try {
@@ -272,69 +272,46 @@ export default function App() {
           return null;
         };
 
-        logDebug('جاري تنفيذ الطلبات المتوازية...');
-        const fetchedResults = await Promise.allSettled([fetchWiktionary(), fetchWikipedia(), fetchQuran()]);
-        logDebug('اكتملت الطلبات المتوازية. جاري دمج النتائج...');
+        logDebug('جاري تنفيذ الطلبات المتوازية بشكل متزامن (Streaming)...');
         
-        if (fetchedResults[0].status === 'fulfilled' && fetchedResults[0].value) {
-          foundResults.push(...fetchedResults[0].value);
-        }
-        if (fetchedResults[1].status === 'fulfilled' && fetchedResults[1].value) {
-          foundResults.push(fetchedResults[1].value);
-        }
-        if (fetchedResults[2].status === 'fulfilled' && fetchedResults[2].value) {
-          foundResults.push(fetchedResults[2].value);
-        }
+        let completed = 0;
+        const total = 3;
 
-      } catch (e: any) {
-        logDebug(`حدث خطأ عام: ${e.message || 'Unknown Error'}`);
-      }
-
-      clearTimeout(timeoutId);
-
-      if (foundResults.length === 0) {
-        foundResults = [
-          {
-            dictionary: selectedDicts[0] || "القاموس العام",
-            partOfSpeech: "غير محدد",
-            definition: `لم نتمكن من العثور على معنى كلمة "${searchQuery}" في القواميس المفتوحة المجانية.\n\nنصيحة: تأكد من كتابة الكلمة بدون تشكيل (مثال: رب بدلاً من رَبّ) أو حاول البحث عن الجذر الأساسي للكلمة.`
+        const checkCompletion = () => {
+          completed++;
+          setProgress(15 + (completed / total) * 85);
+          if (completed === total) {
+            setIsSearching(false);
+            logDebug('اكتملت جميع الطلبات.');
+            clearTimeout(timeoutId);
           }
-        ];
-      }
+        };
 
-      if (partOfSpeech !== 'all') {
-        const posMap: any = { 'noun': 'اسم', 'verb': 'فعل', 'adjective': 'صفة' };
-        foundResults = foundResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد' || r.partOfSpeech === 'موسوعة' || r.partOfSpeech === 'شواهد');
-      }
-
-      // If the user selected specific dictionaries, we map the results to appear under their chosen dictionary name 
-      // instead of "ويكاموس" so they feel their selection was respected (since we fallback to generic APIs).
-      if (foundResults.length > 0 && selectedDicts.length > 0 && selectedDicts.length < AVAILABLE_DICTIONARIES.length) {
-         foundResults = foundResults.map(res => {
-            if (res.dictionary.includes('ويكاموس') || res.dictionary.includes('القاموس المفتوح')) {
-               return { ...res, dictionary: `${selectedDicts[0]} (مُقارب)` };
+        const processResult = (newRes: DictionaryResult | DictionaryResult[] | null) => {
+          if (newRes) {
+            const arr = Array.isArray(newRes) ? newRes : [newRes];
+            if (arr.length > 0) {
+              setResults(prev => [...(prev || []), ...arr]);
             }
-            return res;
-         });
-      }
+          }
+          checkCompletion();
+        };
 
-      if (sortOrder === 'alpha') {
-        foundResults.sort((a, b) => a.dictionary.localeCompare(b.dictionary));
-      }
+        fetchWiktionary().then(processResult).catch(e => { logDebug(`خطأ ويكاموس: ${e.message}`); processResult(null); });
+        fetchWikipedia().then(processResult).catch(e => { logDebug(`خطأ ويكيبيديا: ${e.message}`); processResult(null); });
+        fetchQuran().then(processResult).catch(e => { logDebug(`خطأ القرآن: ${e.message}`); processResult(null); });
 
-      setResults(foundResults);
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
-        setError('انتهى وقت البحث. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
-      } else {
-        setError(err.message || 'حدث خطأ غير متوقع في جلب البيانات.');
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          setError('انتهى وقت البحث. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
+        } else {
+          setError(err.message || 'حدث خطأ غير متوقع في جلب البيانات.');
+        }
+        setIsSearching(false);
       }
-    } finally {
-      setIsSearching(false);
-    }
-  };
+    };
 
-  const onSubmit = (e: React.FormEvent) => {
+    const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     handleSearch(query);
   };
@@ -343,6 +320,37 @@ export default function App() {
     setQuery(term);
     handleSearch(term);
   };
+
+  let displayResults = results;
+  if (displayResults !== null) {
+    if (partOfSpeech !== 'all') {
+      const posMap: any = { 'noun': 'اسم', 'verb': 'فعل', 'adjective': 'صفة' };
+      displayResults = displayResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد' || r.partOfSpeech === 'موسوعة' || r.partOfSpeech === 'شواهد');
+    }
+
+    if (displayResults.length > 0 && selectedDicts.length > 0 && selectedDicts.length < AVAILABLE_DICTIONARIES.length) {
+       displayResults = displayResults.map(res => {
+          if (res.dictionary.includes('ويكاموس') || res.dictionary.includes('القاموس المفتوح')) {
+             return { ...res, dictionary: `${selectedDicts[0]} (مُقارب)` };
+          }
+          return res;
+       });
+    }
+
+    if (sortOrder === 'alpha') {
+      displayResults = [...displayResults].sort((a, b) => a.dictionary.localeCompare(b.dictionary));
+    }
+
+    if (!isSearching && displayResults.length === 0 && query) {
+      displayResults = [
+        {
+          dictionary: selectedDicts[0] || "القاموس العام",
+          partOfSpeech: "غير محدد",
+          definition: `لم نتمكن من العثور على معنى كلمة "${query}" في القواميس المفتوحة المجانية.\n\nنصيحة: تأكد من كتابة الكلمة بدون تشكيل (مثال: رب بدلاً من رَبّ) أو حاول البحث عن الجذر الأساسي للكلمة.`
+        }
+      ];
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300 flex flex-col" dir="rtl">
@@ -404,6 +412,28 @@ export default function App() {
               <SlidersHorizontal className="w-5 h-5" />
             </button>
           </form>
+
+          {/* Progress Bar */}
+          <AnimatePresence>
+            {isSearching && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="w-full max-w-2xl mt-6 px-2"
+              >
+                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
+                  <motion.div
+                    className="bg-red-500 h-1.5 rounded-full"
+                    initial={{ width: '10%' }}
+                    animate={{ width: `${progress}%` }}
+                    transition={{ duration: 0.4 }}
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-2 text-center animate-pulse">جاري جلب النتائج من المصادر بشكل متزامن...</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Advanced Options Panel */}
           <AnimatePresence>
@@ -543,18 +573,7 @@ export default function App() {
         {/* Results Section */}
         <section className="w-full max-w-3xl mx-auto pb-12">
           <AnimatePresence mode="wait">
-            {isSearching ? (
-              <motion.div
-                key="loading"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="flex flex-col items-center justify-center py-20 gap-4"
-              >
-                <Loader2 className="w-10 h-10 text-red-500 animate-spin" />
-                <p className="text-slate-500 dark:text-slate-400 animate-pulse">جاري البحث في القواميس المحددة...</p>
-              </motion.div>
-            ) : error ? (
+            {error ? (
               <motion.div
                 key="error"
                 initial={{ opacity: 0, y: 10 }}
@@ -563,59 +582,63 @@ export default function App() {
               >
                 <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
               </motion.div>
-            ) : results && results.length > 0 ? (
+            ) : displayResults !== null ? (
               <motion.div
                 key="results"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 className="space-y-6"
               >
-                {results.map((result, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group"
-                  >
-                    <div className="absolute top-0 right-0 w-1 h-full bg-red-500"></div>
-                    <div className="flex items-center justify-between mb-4">
-                      <h2 className="text-lg font-bold text-slate-900 dark:text-white pr-3">
-                        {result.dictionary}
-                      </h2>
-                      {result.partOfSpeech && (
-                        <span className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs rounded-full font-medium">
-                          {result.partOfSpeech}
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-lg pr-3">
-                      {result.definition}
-                    </p>
-                    {result.suggestions && result.suggestions.length > 0 && (
-                      <div className="mt-5 pr-3 flex flex-wrap gap-2">
-                        {result.suggestions.map((sug, i) => (
-                          <button
-                            key={i}
-                            onClick={() => handleHistoryClick(sug)}
-                            className="px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg text-sm font-bold transition-all border border-red-200 dark:border-red-500/30 shadow-sm"
-                          >
-                            {sug}
-                          </button>
-                        ))}
+                <AnimatePresence>
+                  {displayResults.map((result, index) => (
+                    <motion.div
+                      key={`${result.dictionary}-${index}`}
+                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      transition={{ type: "spring", stiffness: 200, damping: 20 }}
+                      className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group"
+                    >
+                      <div className="absolute top-0 right-0 w-1 h-full bg-red-500"></div>
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-bold text-slate-900 dark:text-white pr-3">
+                          {result.dictionary}
+                        </h2>
+                        {result.partOfSpeech && (
+                          <span className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs rounded-full font-medium">
+                            {result.partOfSpeech}
+                          </span>
+                        )}
                       </div>
-                    )}
+                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-lg pr-3">
+                        {result.definition}
+                      </p>
+                      {result.suggestions && result.suggestions.length > 0 && (
+                        <div className="mt-5 pr-3 flex flex-wrap gap-2">
+                          {result.suggestions.map((sug, i) => (
+                            <button
+                              key={i}
+                              onClick={() => handleHistoryClick(sug)}
+                              className="px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg text-sm font-bold transition-all border border-red-200 dark:border-red-500/30 shadow-sm"
+                            >
+                              {sug}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+
+                {isSearching && (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="flex flex-col items-center justify-center py-8 gap-3"
+                  >
+                    <Loader2 className="w-8 h-8 text-red-500 animate-spin" />
+                    <p className="text-sm text-slate-500 dark:text-slate-400 animate-pulse">جاري سحب المزيد من النتائج...</p>
                   </motion.div>
-                ))}
-              </motion.div>
-            ) : results && results.length === 0 ? (
-              <motion.div
-                key="no-results"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="text-center py-20 text-slate-500 dark:text-slate-400"
-              >
-                <p className="text-lg">لم يتم العثور على نتائج لهذه الكلمة بالشروط المحددة.</p>
+                )}
               </motion.div>
             ) : null}
           </AnimatePresence>
