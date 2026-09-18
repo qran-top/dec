@@ -14,7 +14,8 @@ const AVAILABLE_DICTIONARIES = [
   'القاموس المحيط',
   'المعجم الوسيط',
   'مختار الصحاح',
-  'المعجم الغني'
+  'المعجم الغني',
+  'ترجمة للإنجليزية'
 ];
 
 export default function App() {
@@ -297,10 +298,34 @@ export default function App() {
           return null;
         };
 
+        const fetchTranslation = async () => {
+          logDebug('الترجمة: جاري جلب الترجمة الإنجليزية...');
+          try {
+            const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(searchQuery.trim())}&langpair=ar|en`, { signal: controller.signal });
+            if (!res.ok) {
+              logDebug(`الترجمة: فشل في الطلب (الرمز: ${res.status})`);
+              return null;
+            }
+            const data = await res.json();
+            const translation = data.responseData?.translatedText;
+            if (translation && !translation.includes('MYMEMORY WARNING')) {
+              logDebug('الترجمة: تم جلب الترجمة بنجاح.');
+              return {
+                dictionary: "الترجمة (إنجليزي)",
+                partOfSpeech: "معنى مقابل",
+                definition: translation
+              };
+            }
+          } catch (e: any) {
+            logDebug(`الترجمة: حدث خطأ - ${e.message || 'Unknown Error'}`);
+          }
+          return null;
+        };
+
         logDebug('جاري تنفيذ الطلبات المتوازية بشكل متزامن (Streaming)...');
         
         let completed = 0;
-        const total = 3;
+        const total = 4;
 
         const checkCompletion = () => {
           completed++;
@@ -316,7 +341,14 @@ export default function App() {
           if (newRes) {
             const arr = Array.isArray(newRes) ? newRes : [newRes];
             if (arr.length > 0) {
-              setResults(prev => [...(prev || []), ...arr]);
+              setResults(prev => {
+                const prevArray = prev || [];
+                // Prevent duplicates
+                const newItems = arr.filter(newItem => 
+                  !prevArray.some(existing => existing.dictionary === newItem.dictionary && existing.definition === newItem.definition)
+                );
+                return [...prevArray, ...newItems];
+              });
             }
           }
           checkCompletion();
@@ -325,6 +357,7 @@ export default function App() {
         fetchWiktionary().then(processResult).catch(e => { logDebug(`خطأ ويكاموس: ${e.message}`); processResult(null); });
         fetchWikipedia().then(processResult).catch(e => { logDebug(`خطأ ويكيبيديا: ${e.message}`); processResult(null); });
         fetchQuran().then(processResult).catch(e => { logDebug(`خطأ القرآن: ${e.message}`); processResult(null); });
+        fetchTranslation().then(processResult).catch(e => { logDebug(`خطأ الترجمة: ${e.message}`); processResult(null); });
 
       } catch (err: any) {
         if (err.name === 'AbortError') {
@@ -353,13 +386,22 @@ export default function App() {
       displayResults = displayResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد' || r.partOfSpeech === 'موسوعة' || r.partOfSpeech === 'شواهد');
     }
 
-    if (displayResults.length > 0 && selectedDicts.length > 0 && selectedDicts.length < AVAILABLE_DICTIONARIES.length) {
-       displayResults = displayResults.map(res => {
-          if (res.dictionary.includes('ويكاموس') || res.dictionary.includes('القاموس المفتوح')) {
-             return { ...res, dictionary: `${selectedDicts[0]} (مُقارب)` };
-          }
-          return res;
-       });
+    if (displayResults.length > 0 && selectedDicts.length > 0) {
+       // Filter out "الترجمة (إنجليزي)" if "ترجمة للإنجليزية" is not selected
+       if (!selectedDicts.includes('ترجمة للإنجليزية')) {
+          displayResults = displayResults.filter(r => !r.dictionary.includes('ترجمة'));
+       }
+
+       // Rename Wiktionary to the first selected classical dictionary
+       const classicalDicts = selectedDicts.filter(d => d !== 'ترجمة للإنجليزية');
+       if (classicalDicts.length > 0 && classicalDicts.length < 5) {
+         displayResults = displayResults.map(res => {
+            if (res.dictionary.includes('ويكاموس') || res.dictionary.includes('القاموس المفتوح')) {
+               return { ...res, dictionary: `${classicalDicts[0]} (مُقارب)` };
+            }
+            return res;
+         });
+       }
     }
 
     if (sortOrder === 'alpha') {
