@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, Bug, Copy, Check, ArrowUp } from 'lucide-react';
+import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, ArrowUp, Book, Sparkles, Code, Globe, PawPrint } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+
+type Page = 'home' | 'privacy' | 'terms' | 'help';
 
 interface DictionaryResult {
   dictionary: string;
@@ -43,11 +45,7 @@ export default function App() {
   const [partOfSpeech, setPartOfSpeech] = useState('all');
   const [sortOrder, setSortOrder] = useState('relevance');
 
-  // Debug state
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [showDebug, setShowDebug] = useState(false);
-  const [isCopied, setIsCopied] = useState(false);
-
+  const [currentPage, setCurrentPage] = useState<Page>('home');
   const [showScrollTop, setShowScrollTop] = useState(false);
 
   useEffect(() => {
@@ -68,20 +66,13 @@ export default function App() {
     setError(null);
     setIsSearching(false);
     setProgress(0);
-    setDebugLogs([]);
+    setCurrentPage('home');
     window.history.pushState({}, '', window.location.pathname);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const logDebug = (msg: string) => {
-    const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
-    setDebugLogs(prev => [...prev, `[${time}] ${msg}`]);
-  };
-
-  const copyDebugLogs = () => {
-    navigator.clipboard.writeText(debugLogs.join('\n'));
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
+    console.log(msg);
   };
 
   useEffect(() => {
@@ -432,13 +423,6 @@ export default function App() {
           </button>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => setShowDebug(!showDebug)}
-              className={`p-2 rounded-full transition-colors ${showDebug ? 'bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'}`}
-              aria-label="سجل التتبع (Debug)"
-            >
-              <Bug className="w-5 h-5" />
-            </button>
-            <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               aria-label="تبديل الوضع الليلي"
@@ -451,7 +435,8 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 flex flex-col gap-8">
-        
+        {currentPage === 'home' ? (
+          <>
         {/* Search Section */}
         <section className="w-full flex flex-col items-center justify-center pt-8">
           <form onSubmit={onSubmit} className="w-full max-w-2xl relative">
@@ -600,43 +585,6 @@ export default function App() {
           )}
         </section>
 
-        {/* Debug Logs Panel */}
-        <AnimatePresence>
-          {showDebug && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="w-full max-w-3xl mx-auto overflow-hidden"
-            >
-              <div className="mb-8 p-4 bg-slate-900 dark:bg-black border border-slate-800 rounded-2xl shadow-inner text-left" dir="ltr">
-                <div className="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
-                  <div className="flex items-center gap-2 text-red-400">
-                    <Bug className="w-4 h-4" />
-                    <span className="font-semibold text-sm">Debug Logs</span>
-                  </div>
-                  <button
-                    onClick={copyDebugLogs}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors"
-                  >
-                    {isCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    {isCopied ? 'Copied!' : 'Copy Logs'}
-                  </button>
-                </div>
-                <div className="font-mono text-xs text-green-400 h-64 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-700">
-                  {debugLogs.length === 0 ? (
-                    <div className="text-slate-500 italic">Waiting for search action...</div>
-                  ) : (
-                    debugLogs.map((log, i) => (
-                      <div key={i} className="break-words">{log}</div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
         {/* Results Section */}
         <section className="w-full max-w-3xl mx-auto pb-12">
           <AnimatePresence mode="wait">
@@ -710,7 +658,43 @@ export default function App() {
             ) : null}
           </AnimatePresence>
         </section>
+          </>
+        ) : currentPage === 'privacy' ? (
+          <PrivacyPolicy />
+        ) : currentPage === 'terms' ? (
+          <TermsOfUse />
+        ) : (
+          <HelpPage />
+        )}
       </main>
+
+      {/* Footer */}
+      <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 py-6 bg-white dark:bg-slate-950">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+          <div className="flex gap-4 text-sm text-slate-500 dark:text-slate-400 font-medium">
+            <button onClick={() => { setCurrentPage('privacy'); scrollToTop(); }} className="hover:text-red-500 transition-colors">سياسة الخصوصية</button>
+            <button onClick={() => { setCurrentPage('terms'); scrollToTop(); }} className="hover:text-red-500 transition-colors">شروط الاستخدام</button>
+            <button onClick={() => { setCurrentPage('help'); scrollToTop(); }} className="hover:text-red-500 transition-colors">مساعدة</button>
+          </div>
+          <div className="flex flex-wrap justify-center gap-4">
+            <a href="https://qran-top.github.io/" target="_blank" rel="noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="القرآن الكريم">
+              <Book className="w-5 h-5" />
+            </a>
+            <a href="https://alzekr.ai.studio/" target="_blank" rel="noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="الذكر الذكي">
+              <Sparkles className="w-5 h-5" />
+            </a>
+            <a href="https://qran-top.github.io/HMcode/" target="_blank" rel="noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="موقع HMCode">
+              <Code className="w-5 h-5" />
+            </a>
+            <a href="https://www.aboharon.com/" target="_blank" rel="noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="موقع أبو هارون">
+              <Globe className="w-5 h-5" />
+            </a>
+            <a href="https://pet123.vip/" target="_blank" rel="noreferrer" className="text-slate-400 hover:text-red-500 transition-colors" title="حيوانات أليفة">
+              <PawPrint className="w-5 h-5" />
+            </a>
+          </div>
+        </div>
+      </footer>
 
       {/* Scroll to Top Button */}
       <AnimatePresence>
@@ -727,6 +711,71 @@ export default function App() {
           </motion.button>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+function PrivacyPolicy() {
+  return (
+    <div className="w-full max-w-3xl mx-auto py-12 px-4 space-y-6 text-slate-700 dark:text-slate-300">
+      <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 border-b border-slate-200 dark:border-slate-800 pb-4">سياسة الخصوصية</h2>
+      <p>نحن نولي أهمية كبرى لخصوصيتك. يوضح هذا المستند كيفية تعاملنا مع بياناتك أثناء استخدام "القاموس العربي".</p>
+      
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">جمع البيانات</h3>
+      <p>تطبيق "القاموس العربي" لا يطلب أو يجمع أي بيانات شخصية، ولا يطلب تسجيل الدخول. التطبيق يعمل من خلال واجهات برمجية مجانية (APIs) وجميع عمليات البحث تتم بين متصفحك والخوادم المفتوحة (مثل ويكاموس، ويكيبيديا) دون تخزين أية بيانات شخصية على خوادمنا.</p>
+
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">التخزين المحلي (Local Storage)</h3>
+      <p>يتم حفظ "تاريخ البحث" و"الوضع الليلي" فقط داخل متصفحك (التخزين المحلي لجهازك) لتحسين تجربتك، ولا نملك أي وصول لهذه البيانات. يمكنك حذفها في أي وقت من إعدادات المتصفح أو عبر زر "مسح السجل" داخل التطبيق.</p>
+
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">مشاركة البيانات مع أطراف ثالثة</h3>
+      <p>حين تبحث عن كلمة، يتم إرسال الكلمة فقط إلى الجهات المفتوحة التالية لجلب المعاني: ويكاموس (Wiktionary)، ويكيبيديا (Wikipedia)، القرآن الكريم (AlQuran Cloud)، وخدمة الترجمة (MyMemory). لا يتم إرسال أي معلومات تحدد هويتك لهذه الأطراف.</p>
+
+      <p className="pt-8 text-sm text-slate-500">آخر تحديث: {new Date().toLocaleDateString('ar-EG')}</p>
+    </div>
+  );
+}
+
+function TermsOfUse() {
+  return (
+    <div className="w-full max-w-3xl mx-auto py-12 px-4 space-y-6 text-slate-700 dark:text-slate-300">
+      <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 border-b border-slate-200 dark:border-slate-800 pb-4">شروط الاستخدام</h2>
+      <p>باستخدامك لتطبيق "القاموس العربي"، فإنك توافق على الشروط التالية الموضحة أدناه.</p>
+      
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">طبيعة الخدمة</h3>
+      <p>يُقدَّم هذا القاموس كأداة تعليمية وتثقيفية مجانية تعتمد على تجميع النتائج من مصادر حرة ومفتوحة. نحن لا ندعي ملكية أي من المواد النصية المسترجعة من ويكاموس، ويكيبيديا، أو واجهات القرآن الكريم، وتظل حقوق النشر الخاصة بها تابعة لمصادرها الأصلية تحت رخص المشاع الإبداعي المفتوحة.</p>
+
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">إخلاء المسؤولية</h3>
+      <p>النتائج المعروضة تُجلب بشكل تلقائي وآلي (متزامن) من مصادر مفتوحة وتعتمد على دقة هذه الخوادم. لا نقدم أي ضمانات، صريحة أو ضمنية، بشأن دقة المعاني أو توفرها بشكل دائم. التطبيق غير مسؤول عن أي أخطاء لغوية قد تظهر في المصادر المسترجعة.</p>
+
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">الاستخدام المقبول</h3>
+      <p>يُسمح باستخدام هذا التطبيق للأغراض الشخصية، التعليمية، والأكاديمية. لا يجوز استخدام أي نصوص مستخرجة في الأغراض التجارية التي تنتهك رخص المشاع الإبداعي للمصادر الأصلية.</p>
+
+      <p className="pt-8 text-sm text-slate-500">آخر تحديث: {new Date().toLocaleDateString('ar-EG')}</p>
+    </div>
+  );
+}
+
+function HelpPage() {
+  return (
+    <div className="w-full max-w-3xl mx-auto py-12 px-4 space-y-6 text-slate-700 dark:text-slate-300">
+      <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 border-b border-slate-200 dark:border-slate-800 pb-4">المساعدة وكيفية الاستخدام</h2>
+      
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">كيف أبحث عن كلمة؟</h3>
+      <p>فقط اكتب الكلمة (يفضل بدون تشكيل معقد إذا لم تجد نتيجة، مثل "كتاب" بدلاً من "كِتَابٌ") واضغط على زر العدسة أو زر الإدخال في لوحة المفاتيح. سيقوم النظام بجلب المعاني من قواميس متعددة في نفس الوقت.</p>
+
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">ما هي "الخيارات المتقدمة"؟</h3>
+      <p>اضغط على أيقونة الإعدادات (بجانب زر البحث) لتتمكن من:</p>
+      <ul className="list-disc list-inside space-y-2 ml-4 text-slate-600 dark:text-slate-400">
+        <li>تحديد القواميس المفضلة لديك للبحث فيها (مثل المعجم الوسيط، مختار الصحاح، والترجمة).</li>
+        <li>تصفية النتائج بناءً على نوع الكلمة (اسم، فعل، صفة).</li>
+        <li>ترتيب النتائج لعرضها بشكل منظم حسب الأبجدية.</li>
+      </ul>
+
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">هل أحتاج لإنترنت للبحث؟</h3>
+      <p>نعم، التطبيق يعتمد على جلب المعاني بشكل حي ومباشر من قواعد البيانات المفتوحة على شبكة الإنترنت.</p>
+      
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">للتواصل والدعم</h3>
+      <p>إذا واجهتك أي مشكلة، يمكنك العودة إلى المطور أو استخدام الروابط المتوفرة في أسفل الصفحة لمزيد من الأدوات والمواقع الخاصة بنا.</p>
     </div>
   );
 }
