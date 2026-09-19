@@ -181,17 +181,22 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Load dictionaries list from API
+  // Load dictionaries list from local JSON index
   useEffect(() => {
-    fetch('/api/dictionaries')
+    fetch('./data/index.json')
       .then(res => res.json())
       .then(data => {
-        if (data.dictionaries && Array.isArray(data.dictionaries)) {
-          setDictionaries(data.dictionaries);
+        if (data.dictionaries) {
+          const dictArray = Object.entries(data.dictionaries).map(([id, meta]: [string, any]) => ({
+            id,
+            ...meta,
+            totalEntries: 0 // We don't have this in the index yet, but that's okay
+          }));
+          setDictionaries(dictArray);
         }
       })
-      .catch(() => {
-        // fallback to DEFAULT_DICTIONARIES
+      .catch((err) => {
+        console.error("Failed to load dictionary index:", err);
       });
   }, []);
 
@@ -234,25 +239,59 @@ export default function App() {
     }
   }, []);
 
-  // Autocomplete fetch
+  // Helper functions for normalization (cloned from server logic)
+  const stripTashkeel = (text: string): string => {
+    if (!text) return "";
+    return text.replace(/[\u064B-\u065F\u0670\u0640]/g, "").trim();
+  };
+
+  const normalizeAlef = (text: string): string => {
+    if (!text) return "";
+    return text
+      .replace(/[أإآٱ]/g, "ا")
+      .replace(/ى/g, "ي")
+      .replace(/ة/g, "ه");
+  };
+
+  const getFirstChar = (text: string): string => {
+    const clean = stripTashkeel(text);
+    if (!clean) return "other";
+    return normalizeAlef(clean[0]);
+  };
+
+  const formatMeaning = (text: string): string => {
+    if (!text) return "";
+    return text
+      .replace(/\|/g, "\n")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  };
+
+  // Autocomplete fetch (Local)
   useEffect(() => {
     if (query.trim().length >= 2) {
-      const timer = setTimeout(() => {
-        fetch(`/api/suggest?q=${encodeURIComponent(query.trim())}`)
-          .then(res => res.json())
-          .then(data => {
-            if (data.suggestions && data.suggestions.length > 0) {
-              setSuggestions(data.suggestions);
-              setShowSuggestions(true);
-            } else {
-              setSuggestions([]);
-              setShowSuggestions(false);
-            }
-          })
-          .catch(() => {
-            setSuggestions([]);
-          });
-      }, 200);
+      const timer = setTimeout(async () => {
+        try {
+          const firstChar = getFirstChar(query.trim());
+          const res = await fetch(`./data/${encodeURIComponent(firstChar)}_json.json`);
+          if (!res.ok) return;
+          const entries = await res.json();
+          const cleanQ = stripTashkeel(query.trim());
+          
+          const sugs = Array.from(new Set(
+            entries
+              .filter((e: any) => stripTashkeel(e.w).startsWith(cleanQ))
+              .map((e: any) => e.w)
+          )).slice(0, 10) as string[];
+
+          setSuggestions(sugs);
+          setShowSuggestions(sugs.length > 0);
+        } catch (err) {
+          console.error("Suggest error:", err);
+          setSuggestions([]);
+        }
+      }, 300);
       return () => clearTimeout(timer);
     } else {
       setSuggestions([]);
@@ -328,18 +367,58 @@ export default function App() {
     window.history.pushState({}, '', url);
 
     try {
-      const dictsParam = selectedDictIds.join(',');
-      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&dicts=${encodeURIComponent(dictsParam)}`);
+      const firstChar = getFirstChar(trimmed);
+      const res = await fetch(`./data/${encodeURIComponent(firstChar)}_json.json`);
       
       if (!res.ok) {
-        throw new Error('تعذر جلب النتائج من خادم القاموس.');
+        throw new Error('تعذر تحميل ملف البيانات لهذا الحرف.');
       }
 
-      const data = await res.json();
-      setDetectedRoot(data.root || null);
-      setResults(data.results || []);
+      const entries = await res.json();
+      const cleanQ = stripTashkeel(trimmed);
+      const normQ = normalizeAlef(cleanQ);
+
+      // Simple root detection: if the word exists in Ghoni, take its root
+      let root: string | null = null;
+      const ghoniEntry = entries.find((e: any) => e.d === 'mujamul_ghoni' && (stripTashkeel(e.w) === cleanQ || normalizeAlef(stripTashkeel(e.w)) === normQ));
+      if (ghoniEntry && ghoniEntry.r) {
+        root = ghoniEntry.r;
+      }
+      setDetectedRoot(root);
+
+      // Filter entries
+      const matchedResults: DictionaryResult[] = [];
+      const filteredEntries = entries.filter((e: any) => {
+        if (!selectedDictIds.includes(e.d)) return false;
+        
+        const cleanW = stripTashkeel(e.w);
+        const normW = normalizeAlef(cleanW);
+        const cleanRoot = stripTashkeel(e.r || "");
+        
+        return cleanW === cleanQ || normW === normQ || (root && cleanRoot === root) || (e.r && stripTashkeel(e.r) === cleanQ);
+      });
+
+      // Map to DictionaryResult format
+      filteredEntries.forEach((e: any, idx: number) => {
+        const dict = dictionaries.find(d => d.id === e.d);
+        if (!dict) return;
+
+        matchedResults.push({
+          id: `${e.d}-${idx}-${cleanQ}`,
+          dictionaryId: e.d,
+          dictionaryName: dict.name,
+          author: dict.author,
+          era: dict.era,
+          eraLabel: dict.eraLabel,
+          word: e.w,
+          root: e.r || "",
+          definition: formatMeaning(e.m)
+        });
+      });
+
+      setResults(matchedResults.slice(0, 50)); // Limit results for performance
     } catch (err: any) {
-      setError(err.message || 'حدث خطأ أثناء الاتصال بقاعدة البيانات.');
+      setError(err.message || 'حدث خطأ أثناء البحث في ملفات البيانات.');
       setResults([]);
     } finally {
       setIsSearching(false);
@@ -349,11 +428,15 @@ export default function App() {
   const handleRandomWord = async () => {
     try {
       setIsSearching(true);
-      const res = await fetch('/api/random');
-      const data = await res.json();
-      if (data.word) {
-        setQuery(data.word);
-        handleSearch(data.word);
+      // Pick a random char and then a random word from it
+      const chars = ['ا', 'ب', 'ت', 'ج', 'ح', 'خ', 'د', 'ر', 'س', 'ش', 'ص', 'ع', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي'];
+      const randomChar = chars[Math.floor(Math.random() * chars.length)];
+      const res = await fetch(`./data/${encodeURIComponent(randomChar)}_json.json`);
+      const entries = await res.json();
+      const randomEntry = entries[Math.floor(Math.random() * entries.length)];
+      if (randomEntry && randomEntry.w) {
+        setQuery(randomEntry.w);
+        handleSearch(randomEntry.w);
       }
     } catch {
       // ignore
