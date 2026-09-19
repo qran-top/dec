@@ -1,94 +1,201 @@
-import { useState, useEffect } from 'react';
-import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, ArrowUp, Book, Sparkles, Code, Globe, PawPrint, Bug, Copy, Check } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { 
+  Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, ArrowUp, 
+  Book, Sparkles, Code, Globe, PawPrint, Copy, Check, Share2, 
+  BookOpen, Shuffle, Filter, Bookmark, BookmarkCheck, ChevronDown, ChevronUp, ZoomIn, ZoomOut
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type Page = 'home' | 'privacy' | 'terms' | 'help';
 
 interface DictionaryResult {
-  dictionary: string;
+  id: string;
+  dictionaryId: string;
+  dictionaryName: string;
+  author: string;
+  era: string;
+  eraLabel: string;
+  word: string;
+  root: string;
   definition: string;
-  partOfSpeech?: string;
-  suggestions?: string[];
 }
 
-const AVAILABLE_DICTIONARIES = [
-  'لسان العرب',
-  'القاموس المحيط',
-  'المعجم الوسيط',
-  'مختار الصحاح',
-  'المعجم الغني',
-  'ترجمة للإنجليزية'
+interface DictionaryMeta {
+  id: string;
+  name: string;
+  shortName: string;
+  author: string;
+  era: 'classical' | 'modern' | 'quranic' | 'english';
+  eraLabel: string;
+  description: string;
+  totalEntries: number;
+}
+
+const DEFAULT_DICTIONARIES: DictionaryMeta[] = [
+  {
+    id: "lisanularab",
+    name: "لسان العرب",
+    shortName: "اللسان",
+    author: "ابن منظور (ت 711هـ)",
+    era: "classical",
+    eraLabel: "معاجم كلاسيكية كبرى",
+    description: "أعظم وأشمل معاجم العربية التراثية، يجمع بين دقة المعاني وغزارة الشواهد القرآنية والحديثية والشعرية.",
+    totalEntries: 9352,
+  },
+  {
+    id: "mujamul_muhith",
+    name: "القاموس المحيط",
+    shortName: "المحيط",
+    author: "الفيروزآبادي (ت 817هـ)",
+    era: "classical",
+    eraLabel: "معاجم كلاسيكية كبرى",
+    description: "معجم موجز ودقيق، حاز شهرة واسعة حتى غدا اسم 'القاموس' مرادفاً لكل معجم في العربية.",
+    totalEntries: 38944,
+  },
+  {
+    id: "mujamul_wasith",
+    name: "المعجم الوسيط",
+    shortName: "الوسيط",
+    author: "مجمع اللغة العربية بالقاهرة",
+    era: "modern",
+    eraLabel: "معاجم معاصرة ومجمعية",
+    description: "معجم منهجي أكاديمي أصدره مجمع اللغة العربية، يستوعب مستجدات العصر والمصطلحات العلمية والحضارية.",
+    totalEntries: 6763,
+  },
+  {
+    id: "mujamul_shihah",
+    name: "الصحاح (تاج اللغة وصحاح العربية)",
+    shortName: "الصحاح",
+    author: "الجوهري (ت 393هـ)",
+    era: "classical",
+    eraLabel: "معاجم كلاسيكية كبرى",
+    description: "أول معجم رتّب الكلمات بحسب القوافي، تميز بانتقاء الصحيح الثابت من ألفاظ العرب.",
+    totalEntries: 5650,
+  },
+  {
+    id: "mujamul_ghoni",
+    name: "معجم الغني",
+    shortName: "الغني",
+    author: "د. عبد الغني أبو العزم",
+    era: "modern",
+    eraLabel: "معاجم معاصرة ومجمعية",
+    description: "معجم معاصر مضبوط بالحركات بالكامل، يوضح دلالات الألفاظ مع سياقاتها واستعمالاتها الحديثة.",
+    totalEntries: 29810,
+  },
+  {
+    id: "mujamul_muashiroh",
+    name: "معجم اللغة العربية المعاصرة",
+    shortName: "المعاصرة",
+    author: "د. أحمد مختار عمر",
+    era: "modern",
+    eraLabel: "معاجم معاصرة ومجمعية",
+    description: "مرجع حديث يعتمد على لغة الصحافة والأدب الحي، يشمل التعبيرات الاصطلاحية وتراكيب العصر.",
+    totalEntries: 32297,
+  },
+  {
+    id: "maqayeesul_luga",
+    name: "معجم مقاييس اللغة",
+    shortName: "المقاييس",
+    author: "ابن فارس (ت 395هـ)",
+    era: "classical",
+    eraLabel: "معاجم كلاسيكية كبرى",
+    description: "معجم فريد يربط ألفاظ الجذر الواحد بأصلها الدلالي ومحورها المشترك وتفرعاتها.",
+    totalEntries: 5274,
+  },
+  {
+    id: "mufradat_alfajul_quran",
+    name: "مفردات ألفاظ القرآن",
+    shortName: "المفردات",
+    author: "الراغب الأصفهاني (ت 502هـ)",
+    era: "quranic",
+    eraLabel: "معاجم قرآنية متخصصة",
+    description: "أشهر معجم مختص في بيان معاني ومفردات القرآن الكريم ودلالاتها البيانية والشرعية.",
+    totalEntries: 1631,
+  },
+  {
+    id: "hanswehr",
+    name: "هانز فير (عربي - إنجليزي)",
+    shortName: "Hans Wehr",
+    author: "Hans Wehr / J.M. Cowan",
+    era: "english",
+    eraLabel: "معاجم إنجليزية",
+    description: "The Dictionary of Modern Written Arabic, the premier reference for Arabic-English translation.",
+    totalEntries: 24799,
+  },
+  {
+    id: "lanelexcon",
+    name: "معجم لين (Lane's Lexicon)",
+    shortName: "Lane's Lexicon",
+    author: "Edward William Lane",
+    era: "english",
+    eraLabel: "معاجم إنجليزية",
+    description: "An Arabic-English Lexicon derived from classical Arabic authorities (Lisan al-Arab, Taj al-Arus).",
+    totalEntries: 52914,
+  },
 ];
 
 export default function App() {
   const [query, setQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [results, setResults] = useState<DictionaryResult[] | null>(null);
+  const [detectedRoot, setDetectedRoot] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState(0);
+  const [dictionaries, setDictionaries] = useState<DictionaryMeta[]>(DEFAULT_DICTIONARIES);
   
+  // Suggestions
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
   // Theme state
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const saved = localStorage.getItem('theme');
     return saved ? saved === 'dark' : true;
   });
 
+  // Font size multiplier
+  const [fontSize, setFontSize] = useState<'normal' | 'large' | 'xlarge'>('normal');
+
   // History state
   const [history, setHistory] = useState<string[]>(() => {
     const saved = localStorage.getItem('searchHistory');
+    return saved ? JSON.parse(saved) : ['كتاب', 'سلام', 'رحمة', 'علم'];
+  });
+
+  // Saved / Bookmarked entries
+  const [bookmarks, setBookmarks] = useState<string[]>(() => {
+    const saved = localStorage.getItem('dictionaryBookmarks');
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Active filter by category
+  const [activeCategory, setActiveCategory] = useState<'all' | 'classical' | 'modern' | 'quranic' | 'english'>('all');
+
   // Advanced search options
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [selectedDicts, setSelectedDicts] = useState<string[]>(['لسان العرب', 'القاموس المحيط', 'المعجم الوسيط']);
-  const [partOfSpeech, setPartOfSpeech] = useState('all');
-  const [sortOrder, setSortOrder] = useState('relevance');
+  const [selectedDictIds, setSelectedDictIds] = useState<string[]>(() => 
+    DEFAULT_DICTIONARIES.map(d => d.id)
+  );
 
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Debug state
-  const [debugLogs, setDebugLogs] = useState<string[]>([]);
-  const [showDebug, setShowDebug] = useState(true);
-  const [isCopied, setIsCopied] = useState(false);
-
+  // Load dictionaries list from API
   useEffect(() => {
-    const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 300);
-    };
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
+    fetch('/api/dictionaries')
+      .then(res => res.json())
+      .then(data => {
+        if (data.dictionaries && Array.isArray(data.dictionaries)) {
+          setDictionaries(data.dictionaries);
+        }
+      })
+      .catch(() => {
+        // fallback to DEFAULT_DICTIONARIES
+      });
   }, []);
 
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const handleGoHome = () => {
-    setQuery('');
-    setResults(null);
-    setError(null);
-    setIsSearching(false);
-    setProgress(0);
-    setCurrentPage('home');
-    window.history.pushState({}, '', window.location.pathname);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  const logDebug = (msg: string) => {
-    const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
-    const formatted = `[${time}] ${msg}`;
-    console.log(formatted);
-    setDebugLogs(prev => [...prev, formatted]);
-  };
-
-  const copyDebugLogs = () => {
-    navigator.clipboard.writeText(debugLogs.join('\n'));
-    setIsCopied(true);
-    setTimeout(() => setIsCopied(false), 2000);
-  };
-
+  // Theme effect
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
@@ -99,10 +206,25 @@ export default function App() {
     }
   }, [isDarkMode]);
 
+  // Persist history & bookmarks
   useEffect(() => {
     localStorage.setItem('searchHistory', JSON.stringify(history));
   }, [history]);
 
+  useEffect(() => {
+    localStorage.setItem('dictionaryBookmarks', JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  // Scroll listener
+  useEffect(() => {
+    const handleScroll = () => {
+      setShowScrollTop(window.scrollY > 300);
+    };
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Check URL param on load
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const q = params.get('q');
@@ -112,347 +234,222 @@ export default function App() {
     }
   }, []);
 
+  // Autocomplete fetch
+  useEffect(() => {
+    if (query.trim().length >= 2) {
+      const timer = setTimeout(() => {
+        fetch(`/api/suggest?q=${encodeURIComponent(query.trim())}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.suggestions && data.suggestions.length > 0) {
+              setSuggestions(data.suggestions);
+              setShowSuggestions(true);
+            } else {
+              setSuggestions([]);
+              setShowSuggestions(false);
+            }
+          })
+          .catch(() => {
+            setSuggestions([]);
+          });
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+  }, [query]);
+
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleGoHome = () => {
+    setQuery('');
+    setResults(null);
+    setDetectedRoot(null);
+    setError(null);
+    setIsSearching(false);
+    setCurrentPage('home');
+    window.history.pushState({}, '', window.location.pathname);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   const addToHistory = (term: string) => {
     setHistory(prev => {
-      const newHistory = [term, ...prev.filter(item => item !== term)].slice(0, 20);
+      const newHistory = [term, ...prev.filter(item => item !== term)].slice(0, 25);
       return newHistory;
     });
   };
 
   const clearHistory = () => setHistory([]);
 
-  const toggleDictionary = (dict: string) => {
-    setSelectedDicts(prev => 
-      prev.includes(dict) 
-        ? prev.filter(d => d !== dict)
-        : [...prev, dict]
+  const toggleBookmark = (id: string) => {
+    setBookmarks(prev => 
+      prev.includes(id) ? prev.filter(b => b !== id) : [...prev, id]
     );
   };
 
+  const toggleDictionary = (id: string) => {
+    setSelectedDictIds(prev => 
+      prev.includes(id) ? prev.filter(d => d !== id) : [...prev, id]
+    );
+  };
+
+  const selectAllDictionaries = () => {
+    setSelectedDictIds(dictionaries.map(d => d.id));
+  };
+
+  const deselectAllDictionaries = () => {
+    setSelectedDictIds([]);
+  };
+
   const handleSearch = async (searchQuery: string, saveToHistory = true) => {
-    if (!searchQuery.trim()) return;
-    if (selectedDicts.length === 0) {
-      setError('يرجى اختيار قاموس واحد على الأقل.');
+    const trimmed = searchQuery.trim();
+    if (!trimmed) return;
+    
+    if (selectedDictIds.length === 0) {
+      setError('يرجى اختيار قاموس واحد على الأقل من الخيارات المتقدمة.');
       return;
     }
-    
+
+    setShowSuggestions(false);
     setIsSearching(true);
     setError(null);
-    setResults([]);
-    setProgress(15);
-    setDebugLogs([]);
-    logDebug(`بدء البحث عن الكلمة: "${searchQuery.trim()}"`);
-    
+    setResults(null);
+    setDetectedRoot(null);
+
     if (saveToHistory) {
-      addToHistory(searchQuery.trim());
+      addToHistory(trimmed);
     }
-    
+
     const url = new URL(window.location.href);
-    url.searchParams.set('q', searchQuery.trim());
+    url.searchParams.set('q', trimmed);
     window.history.pushState({}, '', url);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      logDebug('تنبيه: انتهت مهلة الانتظار (10 ثوانٍ) - إيقاف أي طلبات عالقة...');
-      controller.abort();
-      setIsSearching(false);
-      setProgress(100);
-    }, 10000);
-
     try {
-      const fetchWiktionary = async () => {
-          logDebug('ويكاموس: جاري بدء البحث...');
-          let results: DictionaryResult[] = [];
-          try {
-            const searchRes = await fetch(`https://ar.wiktionary.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal });
-            
-            let exactTitlesToFetch: string[] = [];
-            if (searchRes.ok) {
-              logDebug('ويكاموس: تم استلام الرد الأولي بنجاح.');
-              const searchData = await searchRes.json();
-              const searchHits = searchData.query?.search || [];
-              
-              for (const hit of searchHits) {
-                const cleanSnippet = hit.snippet.replace(/<[^>]*>?/gm, '').trim();
-                if (cleanSnippet.includes('هل تقصد:')) {
-                  const parts = cleanSnippet.split(/هل تقصد:?/);
-                  const foundSuggestions = parts[1].split(/\s+/).map((s: string) => s.trim()).filter((s: string) => s.length > 0 && s.length < 25);
-                  exactTitlesToFetch.push(...foundSuggestions);
-                } else if (cleanSnippet.length > 20) {
-                  exactTitlesToFetch.push(hit.title);
-                }
-              }
-            } else {
-              logDebug(`ويكاموس: فشل في الطلب الأولي (الرمز: ${searchRes.status})`);
-            }
-            
-            exactTitlesToFetch = Array.from(new Set(exactTitlesToFetch)).slice(0, 3);
-            if (exactTitlesToFetch.length === 0) {
-               exactTitlesToFetch.push(searchQuery.trim());
-            }
-
-            logDebug(`ويكاموس: سيتم سحب المعاني للكلمات المحددة: ${exactTitlesToFetch.join('، ')}...`);
-            const extractPromises = exactTitlesToFetch.map(title => 
-               fetch(`https://ar.wiktionary.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(title)}&format=json&origin=*`, { signal: controller.signal })
-            );
-
-            const extractResponses = await Promise.allSettled(extractPromises);
-            const validResponses = await Promise.all(
-               extractResponses.map(async (res) => {
-                  if (res.status === 'fulfilled' && res.value.ok) {
-                     const data = await res.value.json();
-                     const pages = data.query?.pages;
-                     if (pages) {
-                        const pageId = Object.keys(pages)[0];
-                        if (pageId !== "-1" && pages[pageId].extract) {
-                           return { title: pages[pageId].title, extract: pages[pageId].extract };
-                        }
-                     }
-                  }
-                  return null;
-               })
-            );
-
-            validResponses.filter(Boolean).forEach((entry: any) => {
-               let cleanExtract = entry.extract;
-               cleanExtract = cleanExtract.replace(/={2,}.*?={2,}/g, '');
-               cleanExtract = cleanExtract.replace(/^[=\s]+/gm, '');
-               cleanExtract = cleanExtract.replace(/\n{3,}/g, '\n\n').trim();
-               
-               if (cleanExtract.length > 10) {
-                  results.push({
-                    dictionary: `ويكاموس (${entry.title})`,
-                    partOfSpeech: "متعدد",
-                    definition: cleanExtract
-                  });
-               }
-            });
-            logDebug(`ويكاموس: تم استخراج ${results.length} معاني بنجاح.`);
-          } catch (e: any) {
-            logDebug(`ويكاموس: حدث خطأ أثناء المعالجة - ${e.message || 'Unknown Error'}`);
-          }
-          return results;
-        };
-
-        const fetchWikipedia = async () => {
-          logDebug('ويكيبيديا: جاري بدء البحث...');
-          try {
-            const res = await fetch(`https://ar.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(searchQuery.trim())}&utf8=&format=json&origin=*`, { signal: controller.signal });
-            if (!res.ok) {
-              logDebug(`ويكيبيديا: فشل في الطلب (الرمز: ${res.status})`);
-              return null;
-            }
-            const data = await res.json();
-            const searchHits = data.query?.search || [];
-            if (searchHits.length > 0) {
-              const topHit = searchHits[0].title;
-              logDebug(`ويكيبيديا: جاري جلب نص المقالة "${topHit}"...`);
-              const extractRes = await fetch(`https://ar.wikipedia.org/w/api.php?action=query&prop=extracts&exsentences=4&explaintext=1&titles=${encodeURIComponent(topHit)}&format=json&origin=*`, { signal: controller.signal });
-              if (!extractRes.ok) {
-                logDebug(`ويكيبيديا: فشل في جلب النص (الرمز: ${extractRes.status})`);
-                return null;
-              }
-              const extractData = await extractRes.json();
-              const pages = extractData.query?.pages;
-              if (pages) {
-                const pageId = Object.keys(pages)[0];
-                if (pageId !== "-1" && pages[pageId].extract && pages[pageId].extract.length > 20) {
-                  logDebug('ويكيبيديا: تم جلب نص المقالة بنجاح.');
-                  return {
-                    dictionary: `ويكيبيديا (${topHit})`,
-                    partOfSpeech: "موسوعة",
-                    definition: pages[pageId].extract.trim()
-                  };
-                } else {
-                  logDebug('ويكيبيديا: المقالة المسترجعة قصيرة جداً أو فارغة.');
-                }
-              }
-            } else {
-               logDebug('ويكيبيديا: لم يتم العثور على مقالات مطابقة.');
-            }
-          } catch (e: any) {
-             logDebug(`ويكيبيديا: حدث خطأ - ${e.message || 'Unknown Error'}`);
-          }
-          return null;
-        };
-
-        const fetchQuran = async () => {
-          logDebug('القرآن الكريم: جاري البحث...');
-          try {
-            const res = await fetch(`https://api.alquran.cloud/v1/search/${encodeURIComponent(searchQuery.trim())}/all/quran-simple`, { signal: controller.signal });
-            if (!res.ok) {
-              logDebug(`القرآن الكريم: فشل في الطلب (الرمز: ${res.status})`);
-              return null;
-            }
-            const data = await res.json();
-            const results = data.data?.matches || [];
-            if (results.length > 0) {
-              // Take up to 3 results
-              const topResults = results.slice(0, 3);
-              logDebug(`القرآن الكريم: تم العثور على ${results.length} آيات مطابقة.`);
-              const verses = topResults.map((r: any) => {
-                 const cleanText = r.text;
-                 return `﴿${cleanText}﴾ [سورة ${r.surah.name.replace('سُورَةُ ', '')} - آية: ${r.numberInSurah}]`;
-              }).join('\n\n');
-              return {
-                 dictionary: "القرآن الكريم",
-                 partOfSpeech: "شواهد",
-                 definition: verses
-              };
-            } else {
-              logDebug('القرآن الكريم: لم يتم العثور على آيات مطابقة.');
-            }
-          } catch (e: any) {
-            logDebug(`القرآن الكريم: حدث خطأ - ${e.message || 'Unknown Error'}`);
-          }
-          return null;
-        };
-
-        const fetchTranslation = async () => {
-          logDebug('الترجمة: جاري جلب الترجمة الإنجليزية...');
-          try {
-            const res = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(searchQuery.trim())}&langpair=ar|en`, { signal: controller.signal });
-            if (!res.ok) {
-              logDebug(`الترجمة: فشل في الطلب (الرمز: ${res.status})`);
-              return null;
-            }
-            const data = await res.json();
-            const translation = data.responseData?.translatedText;
-            if (translation && !translation.includes('MYMEMORY WARNING')) {
-              logDebug('الترجمة: تم جلب الترجمة بنجاح.');
-              return {
-                dictionary: "الترجمة (إنجليزي)",
-                partOfSpeech: "معنى مقابل",
-                definition: translation
-              };
-            }
-          } catch (e: any) {
-            logDebug(`الترجمة: حدث خطأ - ${e.message || 'Unknown Error'}`);
-          }
-          return null;
-        };
-
-        logDebug('جاري تنفيذ الطلبات المتوازية بشكل متزامن (Streaming)...');
-        
-        let completed = 0;
-        const total = 4;
-
-        const checkCompletion = () => {
-          completed++;
-          setProgress(15 + (completed / total) * 85);
-          if (completed >= total) {
-            setIsSearching(false);
-            setProgress(100);
-            logDebug('اكتملت جميع الطلبات.');
-            clearTimeout(timeoutId);
-          }
-        };
-
-        const processResult = (newRes: DictionaryResult | DictionaryResult[] | null) => {
-          if (newRes) {
-            const arr = Array.isArray(newRes) ? newRes : [newRes];
-            if (arr.length > 0) {
-              setResults(prev => {
-                const prevArray = prev || [];
-                // Prevent duplicates
-                const newItems = arr.filter(newItem => 
-                  !prevArray.some(existing => existing.dictionary === newItem.dictionary && existing.definition === newItem.definition)
-                );
-                return [...prevArray, ...newItems];
-              });
-            }
-          }
-          checkCompletion();
-        };
-
-        fetchWiktionary().then(processResult).catch(e => { logDebug(`خطأ ويكاموس: ${e.message}`); processResult(null); });
-        fetchWikipedia().then(processResult).catch(e => { logDebug(`خطأ ويكيبيديا: ${e.message}`); processResult(null); });
-        fetchQuran().then(processResult).catch(e => { logDebug(`خطأ القرآن: ${e.message}`); processResult(null); });
-        fetchTranslation().then(processResult).catch(e => { logDebug(`خطأ الترجمة: ${e.message}`); processResult(null); });
-
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          setError('انتهى وقت البحث. يرجى التحقق من اتصالك بالإنترنت والمحاولة مجدداً.');
-        } else {
-          setError(err.message || 'حدث خطأ غير متوقع في جلب البيانات.');
-        }
-        setIsSearching(false);
+      const dictsParam = selectedDictIds.join(',');
+      const res = await fetch(`/api/search?q=${encodeURIComponent(trimmed)}&dicts=${encodeURIComponent(dictsParam)}`);
+      
+      if (!res.ok) {
+        throw new Error('تعذر جلب النتائج من خادم القاموس.');
       }
-    };
 
-    const onSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    handleSearch(query);
+      const data = await res.json();
+      setDetectedRoot(data.root || null);
+      setResults(data.results || []);
+    } catch (err: any) {
+      setError(err.message || 'حدث خطأ أثناء الاتصال بقاعدة البيانات.');
+      setResults([]);
+    } finally {
+      setIsSearching(false);
+    }
   };
 
-  const handleHistoryClick = (term: string) => {
-    setQuery(term);
-    handleSearch(term);
+  const handleRandomWord = async () => {
+    try {
+      setIsSearching(true);
+      const res = await fetch('/api/random');
+      const data = await res.json();
+      if (data.word) {
+        setQuery(data.word);
+        handleSearch(data.word);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsSearching(false);
+    }
   };
 
+  const copyResultText = (id: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const shareWord = (word: string) => {
+    if (navigator.share) {
+      navigator.share({
+        title: `معنى كلمة ${word} في القاموس العربي`,
+        text: `ابحث عن معنى وتفاصيل كلمة "${word}" في قواميس ومعاجم اللغة العربية.`,
+        url: window.location.href,
+      }).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+      alert('تم نسخ رابط الكلمة إلى الحافظة');
+    }
+  };
+
+  // Filtered display results
   let displayResults = results;
-  if (displayResults !== null) {
-    if (partOfSpeech !== 'all') {
-      const posMap: any = { 'noun': 'اسم', 'verb': 'فعل', 'adjective': 'صفة' };
-      displayResults = displayResults.filter(r => r.partOfSpeech === posMap[partOfSpeech] || r.partOfSpeech === 'متعدد' || r.partOfSpeech === 'خيارات متعددة' || r.partOfSpeech === 'غير محدد' || r.partOfSpeech === 'موسوعة' || r.partOfSpeech === 'شواهد');
-    }
-
-    if (displayResults.length > 0 && selectedDicts.length > 0) {
-       // Filter out "الترجمة (إنجليزي)" if "ترجمة للإنجليزية" is not selected
-       if (!selectedDicts.includes('ترجمة للإنجليزية')) {
-          displayResults = displayResults.filter(r => !r.dictionary.includes('ترجمة'));
-       }
-
-       // Rename Wiktionary to the first selected classical dictionary
-       const classicalDicts = selectedDicts.filter(d => d !== 'ترجمة للإنجليزية');
-       if (classicalDicts.length > 0 && classicalDicts.length < 5) {
-         displayResults = displayResults.map(res => {
-            if (res.dictionary.includes('ويكاموس') || res.dictionary.includes('القاموس المفتوح')) {
-               return { ...res, dictionary: `${classicalDicts[0]} (مُقارب)` };
-            }
-            return res;
-         });
-       }
-    }
-
-    if (sortOrder === 'alpha') {
-      displayResults = [...displayResults].sort((a, b) => a.dictionary.localeCompare(b.dictionary));
-    }
-
-    if (!isSearching && displayResults.length === 0 && query) {
-      displayResults = [
-        {
-          dictionary: selectedDicts[0] || "القاموس العام",
-          partOfSpeech: "غير محدد",
-          definition: `لم نتمكن من العثور على معنى كلمة "${query}" في القواميس المفتوحة المجانية.\n\nنصيحة: تأكد من كتابة الكلمة بدون تشكيل (مثال: رب بدلاً من رَبّ) أو حاول البحث عن الجذر الأساسي للكلمة.`
-        }
-      ];
-    }
+  if (displayResults !== null && activeCategory !== 'all') {
+    displayResults = displayResults.filter(r => r.era === activeCategory);
   }
+
+  const getTextSizeClass = () => {
+    if (fontSize === 'large') return 'text-xl leading-relaxed';
+    if (fontSize === 'xlarge') return 'text-2xl leading-loose';
+    return 'text-lg leading-relaxed';
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-900 text-slate-900 dark:text-slate-50 font-sans transition-colors duration-300 flex flex-col" dir="rtl">
       {/* Header */}
-      <header className="sticky top-0 z-10 border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 h-16 flex items-center justify-between">
-          <button onClick={handleGoHome} className="flex items-center gap-3 hover:opacity-80 transition-opacity text-right">
-            <svg className="w-8 h-8 text-red-600 dark:text-red-500" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-              <path d="M50 5 L60 30 L85 15 L70 40 L95 50 L70 60 L85 85 L60 70 L50 95 L40 70 L15 85 L30 60 L5 50 L30 40 L15 15 L40 30 Z" fill="currentColor"/>
-            </svg>
-            <h1 className="text-xl font-bold tracking-tight">القاموس العربي</h1>
+      <header className="sticky top-0 z-30 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur-md shadow-xs">
+        <div className="max-w-5xl mx-auto px-4 h-16 flex items-center justify-between">
+          <button 
+            id="brand-logo-btn"
+            onClick={handleGoHome} 
+            className="flex items-center gap-3 hover:opacity-85 transition-opacity text-right cursor-pointer"
+          >
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-red-600 to-amber-600 flex items-center justify-center text-white shadow-md shadow-red-500/20">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-slate-900 dark:text-white leading-tight">القاموس العربي</h1>
+              <span className="text-[11px] text-slate-500 dark:text-slate-400 block font-medium">جامع أمهات المعاجم والقواميس</span>
+            </div>
           </button>
+
           <div className="flex items-center gap-2">
+            {/* Font Size controls */}
+            <div className="hidden sm:flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg p-0.5 border border-slate-200 dark:border-slate-700">
+              <button
+                id="font-size-dec"
+                onClick={() => setFontSize(prev => prev === 'xlarge' ? 'large' : 'normal')}
+                className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                title="تصغير الخط"
+              >
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button
+                id="font-size-inc"
+                onClick={() => setFontSize(prev => prev === 'normal' ? 'large' : 'xlarge')}
+                className="p-1.5 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+                title="تكبير الخط"
+              >
+                <ZoomIn className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Random Word Discovery */}
             <button
-              onClick={() => setShowDebug(!showDebug)}
-              className={`p-2 rounded-full transition-colors ${showDebug ? 'bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'}`}
-              aria-label="سجل التتبع (Debug)"
-              title="سجل التتبع (Debug)"
+              id="random-word-btn"
+              onClick={handleRandomWord}
+              disabled={isSearching}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-50 text-amber-800 hover:bg-amber-100 dark:bg-amber-950/40 dark:text-amber-300 dark:hover:bg-amber-900/60 border border-amber-200 dark:border-amber-800/40 transition-colors"
+              title="استكشف كلمة عشوائية من المعجم"
             >
-              <Bug className="w-5 h-5" />
+              <Shuffle className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">كلمة عشوائية</span>
             </button>
+
+            {/* Dark Mode Toggle */}
             <button
+              id="theme-toggle-btn"
               onClick={() => setIsDarkMode(!isDarkMode)}
-              className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 transition-colors"
               aria-label="تبديل الوضع الليلي"
             >
               {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
@@ -462,267 +459,400 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 w-full max-w-4xl mx-auto px-4 py-8 flex flex-col gap-8">
+      <main className="flex-1 w-full max-w-5xl mx-auto px-4 py-8 flex flex-col gap-6">
         {currentPage === 'home' ? (
           <>
-        {/* Search Section */}
-        <section className="w-full flex flex-col items-center justify-center pt-8">
-          <form onSubmit={onSubmit} className="w-full max-w-2xl relative">
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="ابحث عن كلمة عربية هنا..."
-              className="w-full pl-4 pr-12 py-4 text-lg rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 focus:border-red-500 dark:focus:border-red-500 focus:ring-4 focus:ring-red-500/20 outline-none transition-all shadow-sm"
-            />
-            <button
-              type="submit"
-              disabled={isSearching || !query.trim()}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-3 text-slate-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-50 disabled:hover:text-slate-400 transition-colors"
-              aria-label="بحث"
-            >
-              <Search className="w-6 h-6" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className={`absolute left-2 top-1/2 -translate-y-1/2 p-2 rounded-xl transition-colors ${showAdvanced ? 'bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400' : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-              aria-label="خيارات متقدمة"
-            >
-              <SlidersHorizontal className="w-5 h-5" />
-            </button>
-          </form>
-
-          {/* Progress Bar */}
-          <AnimatePresence>
-            {isSearching && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="w-full max-w-2xl mt-6 px-2"
-              >
-                <div className="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-1.5 overflow-hidden">
-                  <motion.div
-                    className="bg-red-500 h-1.5 rounded-full"
-                    initial={{ width: '10%' }}
-                    animate={{ width: `${progress}%` }}
-                    transition={{ duration: 0.4 }}
-                  />
-                </div>
-                <p className="text-xs text-slate-500 mt-2 text-center animate-pulse">جاري جلب النتائج من المصادر بشكل متزامن...</p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Advanced Options Panel */}
-          <AnimatePresence>
-            {showAdvanced && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                className="w-full max-w-2xl overflow-hidden mt-4"
-              >
-                <div className="p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm space-y-6 text-sm">
-                  
-                  {/* Dictionaries */}
-                  <div className="space-y-3">
-                    <h3 className="font-semibold text-slate-700 dark:text-slate-300">القواميس:</h3>
-                    <div className="flex flex-wrap gap-2">
-                      {AVAILABLE_DICTIONARIES.map(dict => (
-                        <button
-                          key={dict}
-                          type="button"
-                          onClick={() => toggleDictionary(dict)}
-                          className={`px-3 py-1.5 rounded-lg border transition-colors ${
-                            selectedDicts.includes(dict)
-                              ? 'bg-red-50 border-red-200 text-red-700 dark:bg-red-500/20 dark:border-red-500/30 dark:text-red-300'
-                              : 'bg-transparent border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:bg-slate-700'
-                          }`}
-                        >
-                          {dict}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Part of Speech */}
-                    <div className="space-y-2">
-                      <label className="font-semibold text-slate-700 dark:text-slate-300 block">نوع الكلمة:</label>
-                      <select
-                        value={partOfSpeech}
-                        onChange={(e) => setPartOfSpeech(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-red-500 transition-colors"
-                      >
-                        <option value="all">الكل</option>
-                        <option value="noun">اسم</option>
-                        <option value="verb">فعل</option>
-                        <option value="adjective">صفة</option>
-                      </select>
-                    </div>
-
-                    {/* Sorting */}
-                    <div className="space-y-2">
-                      <label className="font-semibold text-slate-700 dark:text-slate-300 block">ترتيب النتائج:</label>
-                      <select
-                        value={sortOrder}
-                        onChange={(e) => setSortOrder(e.target.value)}
-                        className="w-full p-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg outline-none focus:border-red-500 transition-colors"
-                      >
-                        <option value="relevance">الأكثر صلة</option>
-                        <option value="alpha">أبجدياً (حسب القاموس)</option>
-                      </select>
-                    </div>
-                  </div>
-
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Search History */}
-          {history.length > 0 && !results && !isSearching && (
-            <div className="w-full max-w-2xl mt-8">
-              <div className="flex items-center justify-between mb-4 px-2">
-                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
-                  <History className="w-4 h-4" />
-                  <h3 className="font-medium text-sm">عمليات البحث السابقة</h3>
-                </div>
-                <button
-                  onClick={clearHistory}
-                  className="text-xs text-slate-400 hover:text-red-500 dark:hover:text-red-400 flex items-center gap-1 transition-colors"
+            {/* Search Box Area */}
+            <section className="w-full flex flex-col items-center justify-center pt-2">
+              <div className="w-full max-w-3xl relative">
+                <form 
+                  onSubmit={(e) => { e.preventDefault(); handleSearch(query); }} 
+                  className="relative"
                 >
-                  <Trash2 className="w-3 h-3" />
-                  مسح السجل
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {history.map((term, i) => (
+                  <input
+                    id="dictionary-search-input"
+                    ref={searchInputRef}
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    onFocus={() => { if (suggestions.length > 0) setShowSuggestions(true); }}
+                    placeholder="ابحث عن كلمة، جذر، أو مصطلح (مثال: كَتَبَ، استغفار، علم، رحمة)..."
+                    className="w-full pl-24 pr-12 py-4 text-lg rounded-2xl border-2 border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:border-red-500 dark:focus:border-red-500 focus:ring-4 focus:ring-red-500/15 outline-none transition-all shadow-sm"
+                  />
+                  
                   <button
-                    key={i}
-                    onClick={() => handleHistoryClick(term)}
-                    className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-sm text-slate-700 dark:text-slate-300 hover:border-red-300 hover:text-red-600 dark:hover:border-red-500/50 dark:hover:text-red-400 transition-all shadow-sm"
+                    id="search-submit-btn"
+                    type="submit"
+                    disabled={isSearching || !query.trim()}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-3 text-slate-400 hover:text-red-500 dark:hover:text-red-400 disabled:opacity-40 transition-colors"
+                    aria-label="بحث"
                   >
-                    {term}
+                    {isSearching ? <Loader2 className="w-6 h-6 animate-spin text-red-500" /> : <Search className="w-6 h-6" />}
                   </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
 
-        {/* Debug Logs Panel */}
-        <AnimatePresence>
-          {showDebug && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="w-full max-w-3xl mx-auto overflow-hidden"
-            >
-              <div className="mb-8 p-4 bg-slate-900 dark:bg-black border border-slate-800 rounded-2xl shadow-inner text-left" dir="ltr">
-                <div className="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
-                  <div className="flex items-center gap-2 text-red-400">
-                    <Bug className="w-4 h-4" />
-                    <span className="font-semibold text-sm">Debug Logs</span>
-                  </div>
-                  <button
-                    onClick={copyDebugLogs}
-                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors"
-                  >
-                    {isCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    {isCopied ? 'Copied!' : 'Copy Logs'}
-                  </button>
-                </div>
-                <div className="font-mono text-xs text-green-400 h-64 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-700">
-                  {debugLogs.length === 0 ? (
-                    <div className="text-slate-500 italic">Waiting for search action...</div>
-                  ) : (
-                    debugLogs.map((log, i) => (
-                      <div key={i} className="break-words">{log}</div>
-                    ))
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Results Section */}
-        <section className="w-full max-w-3xl mx-auto pb-12">
-          <AnimatePresence mode="wait">
-            {error ? (
-              <motion.div
-                key="error"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="p-6 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-2xl text-center"
-              >
-                <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
-              </motion.div>
-            ) : displayResults !== null ? (
-              <motion.div
-                key="results"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="space-y-6"
-              >
-                <AnimatePresence>
-                  {displayResults.map((result, index) => (
-                    <motion.div
-                      key={`${result.dictionary}-${index}`}
-                      initial={{ opacity: 0, scale: 0.95, y: 10 }}
-                      animate={{ opacity: 1, scale: 1, y: 0 }}
-                      transition={{ type: "spring", stiffness: 200, damping: 20 }}
-                      className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm relative overflow-hidden group"
+                  <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {query && (
+                      <button
+                        type="button"
+                        onClick={() => { setQuery(''); setSuggestions([]); }}
+                        className="p-1.5 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-md"
+                        title="مسح"
+                      >
+                        ✕
+                      </button>
+                    )}
+                    <button
+                      id="advanced-filters-btn"
+                      type="button"
+                      onClick={() => setShowAdvanced(!showAdvanced)}
+                      className={`p-2 rounded-xl transition-colors ${
+                        showAdvanced 
+                          ? 'bg-red-50 text-red-600 dark:bg-red-500/20 dark:text-red-400' 
+                          : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                      }`}
+                      aria-label="اختيار القواميس"
+                      title="تخصيص القواميس"
                     >
-                      <div className="absolute top-0 right-0 w-1 h-full bg-red-500"></div>
-                      <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-bold text-slate-900 dark:text-white pr-3">
-                          {result.dictionary}
-                        </h2>
-                        {result.partOfSpeech && (
-                          <span className="px-3 py-1 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs rounded-full font-medium">
-                            {result.partOfSpeech}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-lg pr-3">
-                        {result.definition}
-                      </p>
-                      {result.suggestions && result.suggestions.length > 0 && (
-                        <div className="mt-5 pr-3 flex flex-wrap gap-2">
-                          {result.suggestions.map((sug, i) => (
-                            <button
-                              key={i}
-                              onClick={() => handleHistoryClick(sug)}
-                              className="px-4 py-2 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg text-sm font-bold transition-all border border-red-200 dark:border-red-500/30 shadow-sm"
-                            >
-                              {sug}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </motion.div>
-                  ))}
-                </AnimatePresence>
+                      <SlidersHorizontal className="w-5 h-5" />
+                    </button>
+                  </div>
+                </form>
 
-                {isSearching && (
+                {/* Autocomplete dropdown */}
+                <AnimatePresence>
+                  {showSuggestions && suggestions.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="absolute z-40 top-full mt-2 w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl overflow-hidden"
+                    >
+                      <div className="p-2 border-b border-slate-100 dark:border-slate-700/60 text-xs font-medium text-slate-400 px-3 flex justify-between items-center">
+                        <span>اقتراحات الكلمات من المعاجم:</span>
+                        <button 
+                          onClick={() => setShowSuggestions(false)}
+                          className="hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                          إغلاق
+                        </button>
+                      </div>
+                      <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-700/40">
+                        {suggestions.map((sug, i) => (
+                          <button
+                            key={i}
+                            onClick={() => {
+                              setQuery(sug);
+                              setShowSuggestions(false);
+                              handleSearch(sug);
+                            }}
+                            className="w-full px-4 py-2.5 text-right text-base text-slate-800 dark:text-slate-200 hover:bg-red-50 dark:hover:bg-red-950/30 flex items-center justify-between group transition-colors"
+                          >
+                            <span className="font-medium group-hover:text-red-600 dark:group-hover:text-red-400">
+                              {sug}
+                            </span>
+                            <Search className="w-4 h-4 text-slate-300 group-hover:text-red-400" />
+                          </button>
+                        ))}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              {/* Advanced Options & Dictionary Chooser */}
+              <AnimatePresence>
+                {showAdvanced && (
                   <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="flex flex-col items-center justify-center py-8 gap-3"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    className="w-full max-w-3xl overflow-hidden mt-4"
                   >
-                    <Loader2 className="w-8 h-8 text-red-500 animate-spin" />
-                    <p className="text-sm text-slate-500 dark:text-slate-400 animate-pulse">جاري سحب المزيد من النتائج...</p>
+                    <div className="p-5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-sm space-y-4 text-sm">
+                      <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-3">
+                        <div className="flex items-center gap-2">
+                          <Filter className="w-4 h-4 text-red-500" />
+                          <h3 className="font-bold text-slate-800 dark:text-slate-200">
+                            تحديد القواميس المشمولة في البحث ({selectedDictIds.length} من {dictionaries.length}):
+                          </h3>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs">
+                          <button
+                            onClick={selectAllDictionaries}
+                            className="text-red-600 dark:text-red-400 hover:underline"
+                          >
+                            تحديد الكل
+                          </button>
+                          <span>•</span>
+                          <button
+                            onClick={deselectAllDictionaries}
+                            className="text-slate-500 hover:underline"
+                          >
+                            إلغاء التحديد
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {dictionaries.map(dict => {
+                          const isSelected = selectedDictIds.includes(dict.id);
+                          return (
+                            <button
+                              key={dict.id}
+                              type="button"
+                              onClick={() => toggleDictionary(dict.id)}
+                              className={`p-3 rounded-xl border text-right transition-all flex items-start justify-between gap-2 ${
+                                isSelected
+                                  ? 'bg-red-50/60 border-red-200 dark:bg-red-950/20 dark:border-red-500/40 text-slate-900 dark:text-slate-100 shadow-2xs'
+                                  : 'bg-slate-50/50 border-slate-200 text-slate-500 dark:bg-slate-800/40 dark:border-slate-700/60 dark:text-slate-400 opacity-65'
+                              }`}
+                            >
+                              <div>
+                                <div className="font-bold text-sm">{dict.name}</div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">{dict.author}</div>
+                                <div className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                                  {dict.totalEntries.toLocaleString('ar-EG')} مادة
+                                </div>
+                              </div>
+                              <span className={`w-5 h-5 rounded-md flex items-center justify-center text-xs mt-0.5 ${
+                                isSelected ? 'bg-red-600 text-white' : 'border border-slate-300 dark:border-slate-600'
+                              }`}>
+                                {isSelected ? '✓' : ''}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </motion.div>
                 )}
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </section>
+              </AnimatePresence>
+
+              {/* History shortcuts */}
+              {history.length > 0 && !results && !isSearching && (
+                <div className="w-full max-w-3xl mt-8">
+                  <div className="flex items-center justify-between mb-3 px-2">
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400">
+                      <History className="w-4 h-4" />
+                      <h3 className="font-semibold text-sm">عمليات البحث السابقة</h3>
+                    </div>
+                    <button
+                      onClick={clearHistory}
+                      className="text-xs text-slate-400 hover:text-red-500 flex items-center gap-1 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      مسح السجل
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {history.map((term, i) => (
+                      <button
+                        key={i}
+                        onClick={() => { setQuery(term); handleSearch(term); }}
+                        className="px-3.5 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm text-slate-700 dark:text-slate-300 hover:border-red-300 hover:text-red-600 dark:hover:border-red-500/40 dark:hover:text-red-400 transition-all shadow-2xs"
+                      >
+                        {term}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {/* Results Section */}
+            <section className="w-full max-w-4xl mx-auto pb-12">
+              {/* Root & Stats Summary Banner */}
+              {results !== null && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-4 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs flex flex-wrap items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-red-100 dark:bg-red-950/60 text-red-600 dark:text-red-400 flex items-center justify-center font-bold text-lg">
+                      {query.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-bold text-slate-900 dark:text-white">
+                          نتائج البحث عن: <span className="text-red-600 dark:text-red-400">"{query}"</span>
+                        </h2>
+                        <button
+                          onClick={() => shareWord(query)}
+                          className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                          title="مشاركة رابط الكلمة"
+                        >
+                          <Share2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {detectedRoot && (
+                        <div className="text-sm text-slate-500 dark:text-slate-400 mt-0.5">
+                          الجذر اللغوي الأصلي: <span className="font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-700 px-2 py-0.5 rounded-md">{detectedRoot.split('').join(' - ')}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Category Filter Tabs */}
+                  <div className="flex items-center gap-1.5 bg-slate-100 dark:bg-slate-900/80 p-1 rounded-xl text-xs font-medium">
+                    <button
+                      onClick={() => setActiveCategory('all')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeCategory === 'all'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      الكل ({results.length})
+                    </button>
+                    <button
+                      onClick={() => setActiveCategory('classical')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeCategory === 'classical'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      كلاسيكية
+                    </button>
+                    <button
+                      onClick={() => setActiveCategory('modern')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeCategory === 'modern'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      معاصرة
+                    </button>
+                    <button
+                      onClick={() => setActiveCategory('quranic')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeCategory === 'quranic'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      قرآنية
+                    </button>
+                    <button
+                      onClick={() => setActiveCategory('english')}
+                      className={`px-3 py-1.5 rounded-lg transition-colors ${
+                        activeCategory === 'english'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs font-bold'
+                          : 'text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      English
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Error Message */}
+              {error && (
+                <div className="p-6 bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 rounded-2xl text-center">
+                  <p className="text-red-600 dark:text-red-400 font-medium">{error}</p>
+                </div>
+              )}
+
+              {/* No results */}
+              {!isSearching && results !== null && displayResults?.length === 0 && (
+                <div className="p-10 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-center space-y-3">
+                  <BookOpen className="w-12 h-12 text-slate-300 dark:text-slate-600 mx-auto" />
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200">
+                    لم نجد مادة مطابقة لكلمة "{query}" في التصنيف المحدد.
+                  </h3>
+                  <p className="text-sm text-slate-500 max-w-md mx-auto">
+                    جرّب البحث عن جذر الكلمة المجرد (مثل "كتب" بدلاً من "مكاتبات") أو تفعيل جميع القواميس من الخيارات المتقدمة.
+                  </p>
+                </div>
+              )}
+
+              {/* Results List */}
+              {displayResults && displayResults.length > 0 && (
+                <div className="space-y-6">
+                  {displayResults.map((result) => {
+                    const isBookmarked = bookmarks.includes(result.id);
+                    const isCopied = copiedId === result.id;
+                    const isEnglish = result.era === 'english';
+
+                    return (
+                      <motion.article
+                        key={result.id}
+                        id={`dict-entry-${result.id}`}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="p-6 rounded-2xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs relative overflow-hidden transition-all hover:border-slate-300 dark:hover:border-slate-600"
+                      >
+                        {/* Color accent by era */}
+                        <div className={`absolute top-0 right-0 w-1.5 h-full ${
+                          result.era === 'classical' ? 'bg-red-600' :
+                          result.era === 'modern' ? 'bg-blue-600' :
+                          result.era === 'quranic' ? 'bg-emerald-600' :
+                          'bg-amber-600'
+                        }`} />
+
+                        {/* Entry Header */}
+                        <div className="flex items-start justify-between gap-4 mb-4 pr-3">
+                          <div>
+                            <div className="flex items-center gap-2.5 flex-wrap">
+                              <h3 className="text-xl font-bold text-slate-900 dark:text-white">
+                                {result.dictionaryName}
+                              </h3>
+                              <span className={`px-2.5 py-0.5 text-xs rounded-md font-semibold ${
+                                result.era === 'classical' ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300' :
+                                result.era === 'modern' ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300' :
+                                result.era === 'quranic' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' :
+                                'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300'
+                              }`}>
+                                {result.eraLabel}
+                              </span>
+                            </div>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                              {result.author} • مادة: <span className="font-bold text-slate-800 dark:text-slate-200">{result.word}</span>
+                            </p>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => toggleBookmark(result.id)}
+                              className={`p-2 rounded-lg transition-colors ${
+                                isBookmarked 
+                                  ? 'text-red-600 bg-red-50 dark:bg-red-950/30' 
+                                  : 'text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'
+                              }`}
+                              title={isBookmarked ? 'إزالة من المحفوظات' : 'حفظ المادة'}
+                            >
+                              {isBookmarked ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
+                            </button>
+
+                            <button
+                              onClick={() => copyResultText(result.id, `${result.dictionaryName} (${result.word}):\n${result.definition}`)}
+                              className="p-2 rounded-lg text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                              title="نسخ الشرح"
+                            >
+                              {isCopied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Definition Body */}
+                        <div 
+                          className={`text-slate-800 dark:text-slate-200 whitespace-pre-wrap pr-3 ${getTextSizeClass()} ${
+                            isEnglish ? 'text-left font-serif leading-relaxed' : 'text-right font-sans'
+                          }`}
+                          dir={isEnglish ? 'ltr' : 'rtl'}
+                        >
+                          {result.definition}
+                        </div>
+                      </motion.article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </>
         ) : currentPage === 'privacy' ? (
           <PrivacyPolicy />
@@ -735,8 +865,9 @@ export default function App() {
 
       {/* Footer */}
       <footer className="mt-auto border-t border-slate-200 dark:border-slate-800 py-6 bg-white dark:bg-slate-950">
-        <div className="max-w-4xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
+        <div className="max-w-5xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-6">
           <div className="flex gap-4 text-sm text-slate-500 dark:text-slate-400 font-medium">
+            <button onClick={() => { setCurrentPage('home'); scrollToTop(); }} className="hover:text-red-500 transition-colors">الرئيسية</button>
             <button onClick={() => { setCurrentPage('privacy'); scrollToTop(); }} className="hover:text-red-500 transition-colors">سياسة الخصوصية</button>
             <button onClick={() => { setCurrentPage('terms'); scrollToTop(); }} className="hover:text-red-500 transition-colors">شروط الاستخدام</button>
             <button onClick={() => { setCurrentPage('help'); scrollToTop(); }} className="hover:text-red-500 transition-colors">مساعدة</button>
@@ -765,11 +896,12 @@ export default function App() {
       <AnimatePresence>
         {showScrollTop && (
           <motion.button
+            id="scroll-top-btn"
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.5 }}
             onClick={scrollToTop}
-            className="fixed bottom-6 left-6 p-3 bg-slate-800 dark:bg-slate-700 text-white rounded-full shadow-lg hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors z-50 flex items-center justify-center border border-slate-700 dark:border-slate-600"
+            className="fixed bottom-6 left-6 p-3 bg-slate-800 dark:bg-slate-700 text-white rounded-full shadow-lg hover:bg-slate-700 dark:hover:bg-slate-600 transition-colors z-50 flex items-center justify-center border border-slate-700 dark:border-slate-600 cursor-pointer"
             aria-label="العودة للأعلى"
           >
             <ArrowUp className="w-5 h-5" />
@@ -782,18 +914,15 @@ export default function App() {
 
 function PrivacyPolicy() {
   return (
-    <div className="w-full max-w-3xl mx-auto py-12 px-4 space-y-6 text-slate-700 dark:text-slate-300">
+    <div className="w-full max-w-3xl mx-auto py-8 px-4 space-y-6 text-slate-700 dark:text-slate-300">
       <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 border-b border-slate-200 dark:border-slate-800 pb-4">سياسة الخصوصية</h2>
-      <p>نحن نولي أهمية كبرى لخصوصيتك. يوضح هذا المستند كيفية تعاملنا مع بياناتك أثناء استخدام "القاموس العربي".</p>
+      <p>نحن نولي أهمية كبرى لخصوصيتك. يوضح هذا المستند كيفية تعاملنا مع بياناتك أثناء استخدام تطبيق "القاموس العربي".</p>
       
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">جمع البيانات</h3>
-      <p>تطبيق "القاموس العربي" لا يطلب أو يجمع أي بيانات شخصية، ولا يطلب تسجيل الدخول. التطبيق يعمل من خلال واجهات برمجية مجانية (APIs) وجميع عمليات البحث تتم بين متصفحك والخوادم المفتوحة (مثل ويكاموس، ويكيبيديا) دون تخزين أية بيانات شخصية على خوادمنا.</p>
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">البيانات واستعلامات البحث</h3>
+      <p>تطبيق "القاموس العربي" يعمل بنظام الخادم المباشر مع قاعدة بيانات محلية لمعاجم اللغة العربية. لا يتطلب التطبيق أي تسجيل حساب، ولا يجمع أي بيانات شخصية، ولا يتتبع هويتك.</p>
 
       <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">التخزين المحلي (Local Storage)</h3>
-      <p>يتم حفظ "تاريخ البحث" و"الوضع الليلي" فقط داخل متصفحك (التخزين المحلي لجهازك) لتحسين تجربتك، ولا نملك أي وصول لهذه البيانات. يمكنك حذفها في أي وقت من إعدادات المتصفح أو عبر زر "مسح السجل" داخل التطبيق.</p>
-
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">مشاركة البيانات مع أطراف ثالثة</h3>
-      <p>حين تبحث عن كلمة، يتم إرسال الكلمة فقط إلى الجهات المفتوحة التالية لجلب المعاني: ويكاموس (Wiktionary)، ويكيبيديا (Wikipedia)، القرآن الكريم (AlQuran Cloud)، وخدمة الترجمة (MyMemory). لا يتم إرسال أي معلومات تحدد هويتك لهذه الأطراف.</p>
+      <p>يتم تخزين تفضيلاتك (الوضع الليلي، تاريخ البحث، والمواد المحفوظة في المفضلة) فقط داخل متصفح جهازك محلياً لراحتك. لا يتم رفع هذه التفضيلات لأي خوادم خارجية ويمكنك مسحها بضغطة زر واحدة.</p>
 
       <p className="pt-8 text-sm text-slate-500">آخر تحديث: {new Date().toLocaleDateString('ar-EG')}</p>
     </div>
@@ -802,18 +931,15 @@ function PrivacyPolicy() {
 
 function TermsOfUse() {
   return (
-    <div className="w-full max-w-3xl mx-auto py-12 px-4 space-y-6 text-slate-700 dark:text-slate-300">
+    <div className="w-full max-w-3xl mx-auto py-8 px-4 space-y-6 text-slate-700 dark:text-slate-300">
       <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 border-b border-slate-200 dark:border-slate-800 pb-4">شروط الاستخدام</h2>
-      <p>باستخدامك لتطبيق "القاموس العربي"، فإنك توافق على الشروط التالية الموضحة أدناه.</p>
+      <p>باستخدامك لتطبيق "القاموس العربي"، فإنك توافق على الشروط الموضحة أدناه.</p>
       
       <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">طبيعة الخدمة</h3>
-      <p>يُقدَّم هذا القاموس كأداة تعليمية وتثقيفية مجانية تعتمد على تجميع النتائج من مصادر حرة ومفتوحة. نحن لا ندعي ملكية أي من المواد النصية المسترجعة من ويكاموس، ويكيبيديا، أو واجهات القرآن الكريم، وتظل حقوق النشر الخاصة بها تابعة لمصادرها الأصلية تحت رخص المشاع الإبداعي المفتوحة.</p>
-
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">إخلاء المسؤولية</h3>
-      <p>النتائج المعروضة تُجلب بشكل تلقائي وآلي (متزامن) من مصادر مفتوحة وتعتمد على دقة هذه الخوادم. لا نقدم أي ضمانات، صريحة أو ضمنية، بشأن دقة المعاني أو توفرها بشكل دائم. التطبيق غير مسؤول عن أي أخطاء لغوية قد تظهر في المصادر المسترجعة.</p>
+      <p>يُقدَّم هذا القاموس كأداة بحث لغوية وعلمية تجمع أمهات المعاجم العربية القديمة والمعاصرة لخدمة الباحثين والطلاب وعشاق لغة الضاد. جميع المعاجم التاريخية المتاحة هي في نطاق الملكية العامة والتراث الإسلامي والعربي الخالد.</p>
 
       <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">الاستخدام المقبول</h3>
-      <p>يُسمح باستخدام هذا التطبيق للأغراض الشخصية، التعليمية، والأكاديمية. لا يجوز استخدام أي نصوص مستخرجة في الأغراض التجارية التي تنتهك رخص المشاع الإبداعي للمصادر الأصلية.</p>
+      <p>يُسمح باستخدام هذا التطبيق للأغراض العلمية، البحثية، والتعليمية بحرية كاملة.</p>
 
       <p className="pt-8 text-sm text-slate-500">آخر تحديث: {new Date().toLocaleDateString('ar-EG')}</p>
     </div>
@@ -822,25 +948,17 @@ function TermsOfUse() {
 
 function HelpPage() {
   return (
-    <div className="w-full max-w-3xl mx-auto py-12 px-4 space-y-6 text-slate-700 dark:text-slate-300">
+    <div className="w-full max-w-3xl mx-auto py-8 px-4 space-y-6 text-slate-700 dark:text-slate-300">
       <h2 className="text-3xl font-bold text-slate-900 dark:text-white mb-8 border-b border-slate-200 dark:border-slate-800 pb-4">المساعدة وكيفية الاستخدام</h2>
       
       <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">كيف أبحث عن كلمة؟</h3>
-      <p>فقط اكتب الكلمة (يفضل بدون تشكيل معقد إذا لم تجد نتيجة، مثل "كتاب" بدلاً من "كِتَابٌ") واضغط على زر العدسة أو زر الإدخال في لوحة المفاتيح. سيقوم النظام بجلب المعاني من قواميس متعددة في نفس الوقت.</p>
+      <p>يمكنك كتابة الكلمة بأي صيغة (مثل: "استغفار"، "كاتب"، "كتاب")، وسيقوم النظام الذكي تلقائياً باستخراج الجذر اللغوي (مثل "غفر"، "كتب") وعرض الشرح من المعاجم الكلاسيكية (لسان العرب، القاموس المحيط، الصحاح) ومن المعاجم المعاصرة (المعجم الوسيط، معجم الغني، معجم اللغة العربية المعاصرة) والإنجليزية في نفس اللحظة.</p>
 
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">ما هي "الخيارات المتقدمة"؟</h3>
-      <p>اضغط على أيقونة الإعدادات (بجانب زر البحث) لتتمكن من:</p>
-      <ul className="list-disc list-inside space-y-2 ml-4 text-slate-600 dark:text-slate-400">
-        <li>تحديد القواميس المفضلة لديك للبحث فيها (مثل المعجم الوسيط، مختار الصحاح، والترجمة).</li>
-        <li>تصفية النتائج بناءً على نوع الكلمة (اسم، فعل، صفة).</li>
-        <li>ترتيب النتائج لعرضها بشكل منظم حسب الأبجدية.</li>
-      </ul>
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">ميزة تخصيص القواميس</h3>
+      <p>بالضغط على أيقونة الإعدادات بجانب شريط البحث، يمكنك تفعيل أو تعطيل أي قاموس ترغب به، سواء كان معجماً تراثياً، قرآنياً، أو إنجليزياً.</p>
 
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">هل أحتاج لإنترنت للبحث؟</h3>
-      <p>نعم، التطبيق يعتمد على جلب المعاني بشكل حي ومباشر من قواعد البيانات المفتوحة على شبكة الإنترنت.</p>
-      
-      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">للتواصل والدعم</h3>
-      <p>إذا واجهتك أي مشكلة، يمكنك العودة إلى المطور أو استخدام الروابط المتوفرة في أسفل الصفحة لمزيد من الأدوات والمواقع الخاصة بنا.</p>
+      <h3 className="text-xl font-bold text-slate-900 dark:text-white mt-6">التحكم بحجم الخط</h3>
+      <p>يمكنك تكبير أو تصغير حجم خط النصوص والشواهد الشعرية من خلال أزرار الزووم أعلى الصفحة لقراءة مريحة للعين.</p>
     </div>
   );
 }
