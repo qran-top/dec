@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, ArrowUp, Book, Sparkles, Code, Globe, PawPrint } from 'lucide-react';
+import { Search, Moon, Sun, Loader2, History, SlidersHorizontal, Trash2, ArrowUp, Book, Sparkles, Code, Globe, PawPrint, Bug, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 type Page = 'home' | 'privacy' | 'terms' | 'help';
@@ -48,6 +48,11 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState<Page>('home');
   const [showScrollTop, setShowScrollTop] = useState(false);
 
+  // Debug state
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(true);
+  const [isCopied, setIsCopied] = useState(false);
+
   useEffect(() => {
     const handleScroll = () => {
       setShowScrollTop(window.scrollY > 300);
@@ -72,7 +77,16 @@ export default function App() {
   };
 
   const logDebug = (msg: string) => {
-    console.log(msg);
+    const time = new Date().toLocaleTimeString('ar-EG', { hour12: false });
+    const formatted = `[${time}] ${msg}`;
+    console.log(formatted);
+    setDebugLogs(prev => [...prev, formatted]);
+  };
+
+  const copyDebugLogs = () => {
+    navigator.clipboard.writeText(debugLogs.join('\n'));
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
   };
 
   useEffect(() => {
@@ -138,7 +152,12 @@ export default function App() {
     window.history.pushState({}, '', url);
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
+    const timeoutId = setTimeout(() => {
+      logDebug('تنبيه: انتهت مهلة الانتظار (10 ثوانٍ) - إيقاف أي طلبات عالقة...');
+      controller.abort();
+      setIsSearching(false);
+      setProgress(100);
+    }, 10000);
 
     try {
       const fetchWiktionary = async () => {
@@ -321,8 +340,9 @@ export default function App() {
         const checkCompletion = () => {
           completed++;
           setProgress(15 + (completed / total) * 85);
-          if (completed === total) {
+          if (completed >= total) {
             setIsSearching(false);
+            setProgress(100);
             logDebug('اكتملت جميع الطلبات.');
             clearTimeout(timeoutId);
           }
@@ -422,6 +442,14 @@ export default function App() {
             <h1 className="text-xl font-bold tracking-tight">القاموس العربي</h1>
           </button>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`p-2 rounded-full transition-colors ${showDebug ? 'bg-red-100 text-red-600 dark:bg-red-900/50 dark:text-red-400' : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500'}`}
+              aria-label="سجل التتبع (Debug)"
+              title="سجل التتبع (Debug)"
+            >
+              <Bug className="w-5 h-5" />
+            </button>
             <button
               onClick={() => setIsDarkMode(!isDarkMode)}
               className="p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
@@ -584,6 +612,43 @@ export default function App() {
             </div>
           )}
         </section>
+
+        {/* Debug Logs Panel */}
+        <AnimatePresence>
+          {showDebug && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="w-full max-w-3xl mx-auto overflow-hidden"
+            >
+              <div className="mb-8 p-4 bg-slate-900 dark:bg-black border border-slate-800 rounded-2xl shadow-inner text-left" dir="ltr">
+                <div className="flex items-center justify-between mb-3 border-b border-slate-700 pb-2">
+                  <div className="flex items-center gap-2 text-red-400">
+                    <Bug className="w-4 h-4" />
+                    <span className="font-semibold text-sm">Debug Logs</span>
+                  </div>
+                  <button
+                    onClick={copyDebugLogs}
+                    className="flex items-center gap-1 text-xs px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-md transition-colors"
+                  >
+                    {isCopied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    {isCopied ? 'Copied!' : 'Copy Logs'}
+                  </button>
+                </div>
+                <div className="font-mono text-xs text-green-400 h-64 overflow-y-auto space-y-1.5 scrollbar-thin scrollbar-thumb-slate-700">
+                  {debugLogs.length === 0 ? (
+                    <div className="text-slate-500 italic">Waiting for search action...</div>
+                  ) : (
+                    debugLogs.map((log, i) => (
+                      <div key={i} className="break-words">{log}</div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Results Section */}
         <section className="w-full max-w-3xl mx-auto pb-12">
