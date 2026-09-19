@@ -400,51 +400,93 @@ export default function App() {
 
       const entries = await res.json();
       addLog(`تم تحميل ملف البيانات بنجاح (${entries.length} مادة). جاري التصفية...`);
+      
       const cleanQ = stripTashkeel(trimmed);
       const normQ = normalizeAlef(cleanQ);
 
+      // Advanced cleaning: try removing common prefixes if no exact match found later
+      const prefixes = ['ال', 'ب', 'و', 'ف', 'ل', 'ك'];
+      let alternativeQueries = [cleanQ, normQ];
+      
+      prefixes.forEach(p => {
+        if (cleanQ.startsWith(p) && cleanQ.length > p.length + 1) {
+          const stripped = cleanQ.substring(p.length);
+          alternativeQueries.push(stripped);
+          alternativeQueries.push(normalizeAlef(stripped));
+        }
+      });
+
       // Simple root detection: if the word exists in Ghoni, take its root
       let root: string | null = null;
-      const ghoniEntry = entries.find((e: any) => e.d === 'mujamul_ghoni' && (stripTashkeel(e.w) === cleanQ || normalizeAlef(stripTashkeel(e.w)) === normQ));
+      const ghoniEntry = entries.find((e: any) => 
+        e.d === 'mujamul_ghoni' && 
+        alternativeQueries.includes(stripTashkeel(e.w))
+      );
+      
       if (ghoniEntry && ghoniEntry.r) {
         root = ghoniEntry.r;
         addLog(`تم اكتشاف الجذر: ${root}`);
       }
       setDetectedRoot(root);
 
-      // Filter entries
+      // Filter entries with better matching logic
       const matchedResults: DictionaryResult[] = [];
-      const filteredEntries = entries.filter((e: any) => {
-        if (!selectedDictIds.includes(e.d)) return false;
-        
-        const cleanW = stripTashkeel(e.w);
-        const normW = normalizeAlef(cleanW);
-        const cleanRoot = stripTashkeel(e.r || "");
-        
-        return cleanW === cleanQ || normW === normQ || (root && cleanRoot === root) || (e.r && stripTashkeel(e.r) === cleanQ);
-      });
+      const seenIds = new Set();
 
-      addLog(`تم العثور على ${filteredEntries.length} نتيجة مطابقة.`);
+      const filterByQueries = (queries: string[], isRoot = false) => {
+        entries.forEach((e: any, idx: number) => {
+          if (!selectedDictIds.includes(e.d)) return;
+          const id = `${e.d}-${idx}`;
+          if (seenIds.has(id)) return;
 
-      // Map to DictionaryResult format
-      filteredEntries.forEach((e: any, idx: number) => {
-        const dict = dictionaries.find(d => d.id === e.d);
-        if (!dict) return;
+          const cleanW = stripTashkeel(e.w);
+          const normW = normalizeAlef(cleanW);
+          const cleanR = stripTashkeel(e.r || "");
+          
+          let match = false;
+          if (isRoot) {
+            match = cleanR === root || cleanW === root;
+          } else {
+            match = queries.includes(cleanW) || queries.includes(normW) || (e.r && queries.includes(cleanR));
+            // Add a fuzzy/partial match as fallback if it's a short word in meanings? No, let's stick to word/root for accuracy.
+          }
 
-        matchedResults.push({
-          id: `${e.d}-${idx}-${cleanQ}`,
-          dictionaryId: e.d,
-          dictionaryName: dict.name,
-          author: dict.author,
-          era: dict.era,
-          eraLabel: dict.eraLabel,
-          word: e.w,
-          root: e.r || "",
-          definition: formatMeaning(e.m)
+          if (match) {
+            seenIds.add(id);
+            const dict = dictionaries.find(d => d.id === e.d);
+            if (dict) {
+              matchedResults.push({
+                id: `${id}-${cleanQ}`,
+                dictionaryId: e.d,
+                dictionaryName: dict.name,
+                author: dict.author,
+                era: dict.era,
+                eraLabel: dict.eraLabel,
+                word: e.w,
+                root: e.r || "",
+                definition: formatMeaning(e.m)
+              });
+            }
+          }
         });
-      });
+      };
 
-      setResults(matchedResults.slice(0, 50)); 
+      // 1. Try exact matches first
+      filterByQueries([cleanQ, normQ]);
+      
+      // 2. Try root matches
+      if (root) {
+        filterByQueries([root], true);
+      }
+
+      // 3. Try matches with stripped prefixes if we have very few results
+      if (matchedResults.length < 3) {
+        addLog("نتائج قليلة، جاري تجربة البحث بدون زوائد...");
+        filterByQueries(alternativeQueries);
+      }
+
+      addLog(`تم العثور على ${matchedResults.length} نتيجة مطابقة.`);
+      setResults(matchedResults.slice(0, 60)); 
     } catch (err: any) {
       addLog(`خطأ أثناء البحث: ${err.message}`);
       setError(err.message || 'حدث خطأ أثناء البحث في ملفات البيانات.');
