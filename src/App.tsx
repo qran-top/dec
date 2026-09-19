@@ -181,21 +181,37 @@ export default function App() {
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
+  // Debugging
+  const [debugLogs, setDebugLogs] = useState<string[]>([]);
+  const [showDebug, setShowDebug] = useState(false);
+
+  const addLog = (msg: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setDebugLogs(prev => [`[${timestamp}] ${msg}`, ...prev].slice(0, 50));
+    console.log(`[Dictionary Debug] ${msg}`);
+  };
+
   // Load dictionaries list from local JSON index
   useEffect(() => {
+    addLog("بدء تحميل فهرس القواميس...");
     fetch('./data/index.json')
-      .then(res => res.json())
+      .then(res => {
+        addLog(`استجابة الفهرس: ${res.status} ${res.statusText}`);
+        return res.json();
+      })
       .then(data => {
         if (data.dictionaries) {
           const dictArray = Object.entries(data.dictionaries).map(([id, meta]: [string, any]) => ({
             id,
             ...meta,
-            totalEntries: 0 // We don't have this in the index yet, but that's okay
+            totalEntries: 0
           }));
           setDictionaries(dictArray);
+          addLog(`تم تحميل ${dictArray.length} قاموس بنجاح.`);
         }
       })
       .catch((err) => {
+        addLog(`خطأ في تحميل الفهرس: ${err.message}`);
         console.error("Failed to load dictionary index:", err);
       });
   }, []);
@@ -274,8 +290,12 @@ export default function App() {
       const timer = setTimeout(async () => {
         try {
           const firstChar = getFirstChar(query.trim());
+          addLog(`جاري جلب اقتراحات للحرف: ${firstChar}...`);
           const res = await fetch(`./data/${encodeURIComponent(firstChar)}_json.json`);
-          if (!res.ok) return;
+          if (!res.ok) {
+            addLog(`فشل جلب ملف الاقتراحات: ${res.status}`);
+            return;
+          }
           const entries = await res.json();
           const cleanQ = stripTashkeel(query.trim());
           
@@ -287,7 +307,9 @@ export default function App() {
 
           setSuggestions(sugs);
           setShowSuggestions(sugs.length > 0);
-        } catch (err) {
+          addLog(`تم العثور على ${sugs.length} اقتراح.`);
+        } catch (err: any) {
+          addLog(`خطأ في الاقتراحات: ${err.message}`);
           console.error("Suggest error:", err);
           setSuggestions([]);
         }
@@ -368,13 +390,16 @@ export default function App() {
 
     try {
       const firstChar = getFirstChar(trimmed);
+      addLog(`بدء البحث عن "${trimmed}" (الحرف: ${firstChar})...`);
       const res = await fetch(`./data/${encodeURIComponent(firstChar)}_json.json`);
       
       if (!res.ok) {
+        addLog(`فشل جلب ملف البيانات: ${res.status}`);
         throw new Error('تعذر تحميل ملف البيانات لهذا الحرف.');
       }
 
       const entries = await res.json();
+      addLog(`تم تحميل ملف البيانات بنجاح (${entries.length} مادة). جاري التصفية...`);
       const cleanQ = stripTashkeel(trimmed);
       const normQ = normalizeAlef(cleanQ);
 
@@ -383,6 +408,7 @@ export default function App() {
       const ghoniEntry = entries.find((e: any) => e.d === 'mujamul_ghoni' && (stripTashkeel(e.w) === cleanQ || normalizeAlef(stripTashkeel(e.w)) === normQ));
       if (ghoniEntry && ghoniEntry.r) {
         root = ghoniEntry.r;
+        addLog(`تم اكتشاف الجذر: ${root}`);
       }
       setDetectedRoot(root);
 
@@ -397,6 +423,8 @@ export default function App() {
         
         return cleanW === cleanQ || normW === normQ || (root && cleanRoot === root) || (e.r && stripTashkeel(e.r) === cleanQ);
       });
+
+      addLog(`تم العثور على ${filteredEntries.length} نتيجة مطابقة.`);
 
       // Map to DictionaryResult format
       filteredEntries.forEach((e: any, idx: number) => {
@@ -416,8 +444,9 @@ export default function App() {
         });
       });
 
-      setResults(matchedResults.slice(0, 50)); // Limit results for performance
+      setResults(matchedResults.slice(0, 50)); 
     } catch (err: any) {
+      addLog(`خطأ أثناء البحث: ${err.message}`);
       setError(err.message || 'حدث خطأ أثناء البحث في ملفات البيانات.');
       setResults([]);
     } finally {
@@ -536,6 +565,15 @@ export default function App() {
               aria-label="تبديل الوضع الليلي"
             >
               {isDarkMode ? <Sun className="w-5 h-5 text-amber-400" /> : <Moon className="w-5 h-5 text-indigo-600" />}
+            </button>
+
+            {/* Debug Toggle */}
+            <button
+              onClick={() => setShowDebug(!showDebug)}
+              className={`p-2 rounded-lg transition-colors ${showDebug ? 'bg-red-100 text-red-600' : 'text-slate-400 hover:bg-slate-100'}`}
+              title="سجل التتبع (Debug)"
+            >
+              <History className="w-5 h-5" />
             </button>
           </div>
         </div>
@@ -989,6 +1027,49 @@ export default function App() {
           >
             <ArrowUp className="w-5 h-5" />
           </motion.button>
+        )}
+      </AnimatePresence>
+
+      {/* Debug Panel */}
+      <AnimatePresence>
+        {showDebug && (
+          <motion.div
+            initial={{ y: 300, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 300, opacity: 0 }}
+            className="fixed bottom-0 right-0 left-0 h-64 bg-slate-900 text-slate-300 border-t border-slate-700 z-[100] shadow-2xl flex flex-col font-mono text-[10px]"
+          >
+            <div className="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800">
+              <span className="font-bold flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                سجل تتبع النظام (Debug Logs)
+              </span>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(debugLogs.join('\n'));
+                    alert('تم نسخ السجل!');
+                  }}
+                  className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded"
+                >
+                  نسخ السجل
+                </button>
+                <button onClick={() => setDebugLogs([])} className="px-2 py-1 bg-slate-700 hover:bg-slate-600 rounded">مسح</button>
+                <button onClick={() => setShowDebug(false)} className="px-2 py-1 bg-red-900/50 hover:bg-red-800 rounded">إغلاق</button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-1">
+              {debugLogs.length === 0 ? (
+                <div className="text-slate-500 italic text-center mt-10">لا يوجد عمليات مسجلة حالياً...</div>
+              ) : (
+                debugLogs.map((log, i) => (
+                  <div key={i} className="border-b border-slate-800 pb-1 last:border-0">
+                    {log}
+                  </div>
+                ))
+              )}
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>
